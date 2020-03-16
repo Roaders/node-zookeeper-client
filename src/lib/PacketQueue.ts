@@ -20,10 +20,10 @@ function PacketQueue() {
 }
 
 
-util.inherits(PacketQueue, events.EventEmitter);
+util.inherits(PacketQueueImport, events.EventEmitter);
 
 
-PacketQueue.prototype.push = function (packet) {
+PacketQueueImport.prototype.push = function (packet) {
     if (typeof packet !== 'object') {
         throw new Error('packet must be a valid object.');
     }
@@ -34,7 +34,7 @@ PacketQueue.prototype.push = function (packet) {
 };
 
 
-PacketQueue.prototype.unshift = function (packet) {
+PacketQueueImport.prototype.unshift = function (packet) {
     if (typeof packet !== 'object') {
         throw new Error('packet must be a valid object.');
     }
@@ -43,10 +43,10 @@ PacketQueue.prototype.unshift = function (packet) {
     this.emit('readable');
 };
 
-PacketQueue.prototype.shift = function () {
+PacketQueueImport.prototype.shift = function () {
     return this.queue.shift();
 };
 
 
-module.exports = PacketQueue;
+module.exports = PacketQueueImport;
 

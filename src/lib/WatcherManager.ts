@@ -8,7 +8,7 @@
 
 var events = require('events');
 var Path = require('./Path.js');
-var Event = require('./Event.js');
+var ZkEventImport = require('./Event.js');
 
 function WatcherManager() {
     this.dataWatchers = {};
@@ -51,31 +51,31 @@ function getWatcherPaths(self, type) {
     return result;
 }
 
-WatcherManager.prototype.registerDataWatcher = function (path, watcher) {
+WatcherManagerImport.prototype.registerDataWatcher = function (path, watcher) {
     registerWatcher(this, 'data', path, watcher);
 };
 
-WatcherManager.prototype.getDataWatcherPaths = function () {
+WatcherManagerImport.prototype.getDataWatcherPaths = function () {
     return getWatcherPaths(this, 'data');
 };
 
-WatcherManager.prototype.registerChildWatcher = function (path, watcher) {
+WatcherManagerImport.prototype.registerChildWatcher = function (path, watcher) {
     registerWatcher(this, 'child', path, watcher);
 };
 
-WatcherManager.prototype.getChildWatcherPaths = function () {
+WatcherManagerImport.prototype.getChildWatcherPaths = function () {
     return getWatcherPaths(this, 'child');
 };
 
-WatcherManager.prototype.registerExistenceWatcher = function (path, watcher) {
+WatcherManagerImport.prototype.registerExistenceWatcher = function (path, watcher) {
     registerWatcher(this, 'existence', path, watcher);
 };
 
-WatcherManager.prototype.getExistenceWatcherPaths = function () {
+WatcherManagerImport.prototype.getExistenceWatcherPaths = function () {
     return getWatcherPaths(this, 'existence');
 };
 
-WatcherManager.prototype.emit = function (watcherEvent) {
+WatcherManagerImport.prototype.emit = function (watcherEvent) {
     if (!watcherEvent) {
         throw new Error('watcherEvent must be a valid object.');
     }
@@ -84,8 +84,8 @@ WatcherManager.prototype.emit = function (watcherEvent) {
         event;
 
     switch (watcherEvent.type) {
-    case Event.NODE_DATA_CHANGED:
-    case Event.NODE_CREATED:
+    case ZkEventImport.NODE_DATA_CHANGED:
+    case ZkEventImport.NODE_CREATED:
         if (this.dataWatchers[watcherEvent.path]) {
             emitters.push(this.dataWatchers[watcherEvent.path]);
             delete this.dataWatchers[watcherEvent.path];
@@ -96,13 +96,13 @@ WatcherManager.prototype.emit = function (watcherEvent) {
             delete this.existenceWatchers[watcherEvent.path];
         }
         break;
-    case Event.NODE_CHILDREN_CHANGED:
+    case ZkEventImport.NODE_CHILDREN_CHANGED:
         if (this.childWatchers[watcherEvent.path]) {
             emitters.push(this.childWatchers[watcherEvent.path]);
             delete this.childWatchers[watcherEvent.path];
         }
         break;
-    case Event.NODE_DELETED:
+    case ZkEventImport.NODE_DELETED:
         if (this.dataWatchers[watcherEvent.path]) {
             emitters.push(this.dataWatchers[watcherEvent.path]);
             delete this.dataWatchers[watcherEvent.path];
@@ -120,14 +120,14 @@ WatcherManager.prototype.emit = function (watcherEvent) {
         return;
     }
 
-    event = Event.create(watcherEvent);
+    event = ZkEventImport.create(watcherEvent);
 
     emitters.forEach(function (emitter) {
         emitter.emit('notification', event);
     });
 };
 
-WatcherManager.prototype.isEmpty = function () {
+WatcherManagerImport.prototype.isEmpty = function () {
     var empty = true,
         watchers,
         paths,
@@ -150,4 +150,4 @@ WatcherManager.prototype.isEmpty = function () {
     return empty;
 };
 
-module.exports = WatcherManager;
+module.exports = WatcherManagerImport;

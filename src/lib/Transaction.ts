@@ -9,10 +9,10 @@
 var assert            = require('assert');
 var jute              = require('./jute');
 var Path              = require('./Path.js');
-var ACL               = require('./ACL.js');
-var Exception         = require('./Exception.js');
+var ACLImport               = require('./ACL.js');
+var ExceptionImport         = require('./Exception.js');
 var CreateMode        = require('./CreateMode.js');
-var ConnectionManager = require('./ConnectionManager.js');
+var ConnectionManagerImport = require('./ConnectionManager.js');
 
 /**
  * Transaction provides a builder interface that helps building an atomic set
@@ -23,12 +23,12 @@ var ConnectionManager = require('./ConnectionManager.js');
  * @param connectionManager {ConnectionManager} an instance of ConnectionManager.
  */
 function Transaction(connectionManager) {
-    if (!(this instanceof Transaction)) {
-        return new Transaction(connectionManager);
+    if (!(this instanceof TransactionImport)) {
+        return new TransactionImport(connectionManager);
     }
 
     assert(
-        connectionManager instanceof ConnectionManager,
+        connectionManager instanceof ConnectionManagerImport,
         'connectionManager must be an instance of ConnectionManager.'
     );
 
@@ -46,7 +46,7 @@ function Transaction(connectionManager) {
  * @param [mode=CreateMode.PERSISTENT] {CreateMode} The creation mode.
  * @return {Transaction} this transaction instance.
  */
-Transaction.prototype.create = function (path, data, acls, mode) {
+TransactionImport.prototype.create = function (path, data, acls, mode) {
     var optionalArgs = [data, acls, mode],
         self = this,
         currentPath = '',
@@ -66,7 +66,7 @@ Transaction.prototype.create = function (path, data, acls, mode) {
         }
     });
 
-    acls = Array.isArray(acls) ? acls : ACL.OPEN_ACL_UNSAFE;
+    acls = Array.isArray(acls) ? acls : ACLImport.OPEN_ACL_UNSAFE;
     mode = typeof mode === 'number' ? mode : CreateMode.PERSISTENT;
 
     assert(
@@ -95,7 +95,7 @@ Transaction.prototype.create = function (path, data, acls, mode) {
  * @param [version=-1] {Number} The version of the znode.
  * @return {Transaction} this transaction instance.
  */
-Transaction.prototype.check = function (path, version) {
+TransactionImport.prototype.check = function (path, version) {
     version = version || -1;
 
     Path.validate(path);
@@ -119,7 +119,7 @@ Transaction.prototype.check = function (path, version) {
  * @param [version=-1] {Number} The version of the znode.
  * @return {Transaction} this transaction instance.
  */
-Transaction.prototype.setData = function (path, data, version) {
+TransactionImport.prototype.setData = function (path, data, version) {
     version = version || -1;
 
     Path.validate(path);
@@ -147,7 +147,7 @@ Transaction.prototype.setData = function (path, data, version) {
  * @param [version=-1] {Number} The version of the znode.
  * @return {Transaction} this transaction instance.
  */
-Transaction.prototype.remove = function (path, version) {
+TransactionImport.prototype.remove = function (path, version) {
     version = version || -1;
 
     Path.validate(path);
@@ -168,7 +168,7 @@ Transaction.prototype.remove = function (path, version) {
  * @method commit
  * @param callback {Function} callback function.
  */
-Transaction.prototype.commit = function (callback) {
+TransactionImport.prototype.commit = function (callback) {
     assert(typeof callback === 'function', 'callback must be a function');
 
     var self = this,
@@ -193,8 +193,8 @@ Transaction.prototype.commit = function (callback) {
 
             // Find if there is an op which caused the transaction to fail.
             if (result.type === jute.OP_CODES.ERROR &&
-                    result.err !== Exception.OK) {
-                error = Exception.create(result.err);
+                    result.err !== ExceptionImport.OK) {
+                error = ExceptionImport.create(result.err);
                 break;
             }
         }
@@ -204,4 +204,4 @@ Transaction.prototype.commit = function (callback) {
 };
 
 
-module.exports = Transaction;
+module.exports = TransactionImport;

@@ -44,7 +44,7 @@ function validateType(type) {
  * @param name {String} The name of the event.
  * @param [path] {String} The node path of the event.
  */
-function Event(type, name, path) {
+function ZkEvent(type, name, path) {
     validateType(type);
     assert(
         name && typeof name === 'string',
@@ -62,7 +62,7 @@ function Event(type, name, path) {
  * @method getType
  * @return {String} The name.
  */
-Event.prototype.getType = function () {
+ZkEventImport.prototype.getType = function () {
     return this.type;
 };
 
@@ -72,7 +72,7 @@ Event.prototype.getType = function () {
  * @method getName
  * @return {String} The name.
  */
-Event.prototype.getName = function () {
+ZkEventImport.prototype.getName = function () {
     return this.name;
 };
 
@@ -82,7 +82,7 @@ Event.prototype.getName = function () {
  * @method getPath
  * @return {String} The path.
  */
-Event.prototype.getPath = function () {
+ZkEventImport.prototype.getPath = function () {
     return this.path;
 };
 
@@ -92,7 +92,7 @@ Event.prototype.getPath = function () {
  * @method toString
  * @return {String} The string representation.
  */
-Event.prototype.toString = function () {
+ZkEventImport.prototype.toString = function () {
     var result = this.name + '[' + this.type + ']';
 
     if (this.path) {
@@ -109,7 +109,7 @@ Event.prototype.toString = function () {
  * @method create
  * @param watcherEvent {WatcherEvent} an instance of jute.WatcherEvent
  */
-function create(watcherEvent) {
+export function create(watcherEvent) {
     assert(watcherEvent, 'watcherEvent must be a valid object.');
     validateType(watcherEvent.type);
 
@@ -126,7 +126,7 @@ function create(watcherEvent) {
         i += 1;
     }
 
-    return new Event(watcherEvent.type, name, watcherEvent.path);
+    return new ZkEventImport(watcherEvent.type, name, watcherEvent.path);
 }
 
 module.exports = Event;

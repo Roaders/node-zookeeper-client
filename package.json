@@ -16,9 +16,11 @@
     "url": "https://github.com/alexguan/node-zookeeper-client"
   },
   "scripts": {
-    "pretest": "eslint index.js lib/*.js lib/jute/*.js",
+    "disabled_pretest": "eslint src/index.ts src/lib/*.ts src/lib/jute/*.ts",
     "test": "mocha --recursive --reporter spec test/*",
-    "coverage": "nyc npm test"
+    "coverage": "nyc npm test",
+    "build": "tsc",
+    "build:watch": "tsc --watch"
   },
   "engines": {
     "node": ">=8.10.0"
@@ -34,9 +36,11 @@
     }
   ],
   "devDependencies": {
+    "@types/node": "^8.10.59",
     "chai": "~1.5.0",
     "eslint": "^6.4.0",
     "mocha": "^6.2.0",
-    "nyc": "^14.1.1"
+    "nyc": "^14.1.1",
+    "typescript": "^3.5.3"
   }
 }

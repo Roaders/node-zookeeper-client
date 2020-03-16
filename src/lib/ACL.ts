@@ -7,7 +7,7 @@
 
 
 var jute = require('./jute');
-var Id = require('./Id.js');
+var IdImport = require('./Id.js');
 var Permission = require('./Permission.js');
 
 function ACL(permission, id) {
@@ -15,7 +15,7 @@ function ACL(permission, id) {
         throw new Error('permission must be a valid integer.');
     }
 
-    if (!(id instanceof Id)) {
+    if (!(id instanceof IdImport)) {
         throw new Error('id must be an instance of Id class.');
     }
 
@@ -23,7 +23,7 @@ function ACL(permission, id) {
     this.id = id;
 }
 
-ACL.prototype.toRecord = function () {
+ACLImport.prototype.toRecord = function () {
     return new jute.data.ACL(
         this.permission,
         this.id.toRecord()
@@ -31,22 +31,22 @@ ACL.prototype.toRecord = function () {
 };
 
 var ACLS = {
-    OPEN_ACL_UNSAFE : [new ACL(Permission.ALL, Id.ANYONE_ID_UNSAFE)],
-    CREATOR_ALL_ACL : [new ACL(Permission.ALL, Id.AUTH_IDS)],
-    READ_ACL_UNSAFE : [new ACL(Permission.READ, Id.ANYONE_ID_UNSAFE)]
+    OPEN_ACL_UNSAFE : [new ACLImport(Permission.ALL, IdImport.ANYONE_ID_UNSAFE)],
+    CREATOR_ALL_ACL : [new ACLImport(Permission.ALL, IdImport.AUTH_IDS)],
+    READ_ACL_UNSAFE : [new ACLImport(Permission.READ, IdImport.ANYONE_ID_UNSAFE)]
 };
 
 
-function fromRecord(record) {
+export function fromRecord(record) {
     if (!(record instanceof jute.data.ACL)) {
         throw new Error('record must be an instace of jute.data.ACL.');
     }
 
-    return new ACL(record.perms, Id.fromRecord(record.id));
+    return new ACLImport(record.perms, IdImport.fromRecord(record.id));
 }
 
 
-module.exports = ACL;
+module.exports = ACLImport;
 module.exports.fromRecord = fromRecord;
 Object.keys(ACLS).forEach(function (key) {
     module.exports[key] = ACLS[key];

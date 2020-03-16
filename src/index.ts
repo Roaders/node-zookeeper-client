@@ -22,16 +22,16 @@ var async             = require('async');
 var u                 = require('underscore');
 
 var jute              = require('./lib/jute');
-var ACL               = require('./lib/ACL.js');
-var Id                = require('./lib/Id.js');
+var ACLImport               = require('./lib/ACL.js');
+var IdImport                = require('./lib/Id.js');
 var Path              = require('./lib/Path.js');
-var Event             = require('./lib/Event.js');
-var State             = require('./lib/State.js');
+var ZkEventImport           = require('./lib/Event.js');
+var StateImport             = require('./lib/State.js');
 var Permission        = require('./lib/Permission.js');
 var CreateMode        = require('./lib/CreateMode.js');
-var Exception         = require('./lib/Exception');
-var Transaction       = require('./lib/Transaction.js');
-var ConnectionManager = require('./lib/ConnectionManager.js');
+var ExceptionImport         = require('./lib/Exception');
+var TransactionImport       = require('./lib/Transaction.js');
+var ConnectionManagerImport = require('./lib/ConnectionManager.js');
 
 
 // Constants.
@@ -48,19 +48,19 @@ var DATA_SIZE_LIMIT = 1048576; // 1 mega bytes.
  */
 function defaultStateListener(state) {
     switch (state) {
-    case State.DISCONNECTED:
+    case StateImport.DISCONNECTED:
         this.emit('disconnected');
         break;
-    case State.SYNC_CONNECTED:
+    case StateImport.SYNC_CONNECTED:
         this.emit('connected');
         break;
-    case State.CONNECTED_READ_ONLY:
+    case StateImport.CONNECTED_READ_ONLY:
         this.emit('connectedReadOnly');
         break;
-    case State.EXPIRED:
+    case StateImport.EXPIRED:
         this.emit('expired');
         break;
-    case State.AUTH_FAILED:
+    case StateImport.AUTH_FAILED:
         this.emit('authenticationFailed');
         break;
     default:
@@ -135,7 +135,7 @@ function attempt(self, fn, callback) {
                     results[attempts].args = args.slice(1);
                 }
 
-                if (error && error.code === Exception.CONNECTION_LOSS) {
+                if (error && error.code === ExceptionImport.CONNECTION_LOSS) {
                     retry = true;
                 } else {
                     retry = false;
@@ -177,7 +177,7 @@ function attempt(self, fn, callback) {
  * @param connectionString {String} ZooKeeper server ensemble string.
  * @param [options] {Object} client options.
  */
-function Client(connectionString, options) {
+function Client(connectionString, options): void {
     if (!(this instanceof Client)) {
         return new Client(connectionString, options);
     }
@@ -198,14 +198,14 @@ function Client(connectionString, options) {
 
     options = u.defaults(u.clone(options), CLIENT_DEFAULT_OPTIONS);
 
-    this.connectionManager = new ConnectionManager(
+    this.connectionManager = new ConnectionManagerImport(
         connectionString,
         options,
         this.onConnectionManagerState.bind(this)
     );
 
     this.options = options;
-    this.state = State.DISCONNECTED;
+    this.state = StateImport.DISCONNECTED;
 
     this.on('state', defaultStateListener);
 }
@@ -238,20 +238,20 @@ Client.prototype.onConnectionManagerState = function (connectionManagerState) {
 
     // Convert connection state to ZooKeeper state.
     switch (connectionManagerState) {
-    case ConnectionManager.STATES.DISCONNECTED:
-        state = State.DISCONNECTED;
+    case ConnectionManagerImport.STATES.DISCONNECTED:
+        state = StateImport.DISCONNECTED;
         break;
-    case ConnectionManager.STATES.CONNECTED:
-        state = State.SYNC_CONNECTED;
+    case ConnectionManagerImport.STATES.CONNECTED:
+        state = StateImport.SYNC_CONNECTED;
         break;
-    case ConnectionManager.STATES.CONNECTED_READ_ONLY:
-        state = State.CONNECTED_READ_ONLY;
+    case ConnectionManagerImport.STATES.CONNECTED_READ_ONLY:
+        state = StateImport.CONNECTED_READ_ONLY;
         break;
-    case ConnectionManager.STATES.SESSION_EXPIRED:
-        state = State.EXPIRED;
+    case ConnectionManagerImport.STATES.SESSION_EXPIRED:
+        state = StateImport.EXPIRED;
         break;
-    case ConnectionManager.STATES.AUTHENTICATION_FAILED:
-        state = State.AUTH_FAILED;
+    case ConnectionManagerImport.STATES.AUTHENTICATION_FAILED:
+        state = StateImport.AUTH_FAILED;
         break;
     default:
         // Not a event in which client is interested, so skip it.
@@ -373,7 +373,7 @@ Client.prototype.create = function (path, data, acls, mode, callback) {
         'callback must be a function.'
     );
 
-    acls = Array.isArray(acls) ? acls : ACL.OPEN_ACL_UNSAFE;
+    acls = Array.isArray(acls) ? acls : ACLImport.OPEN_ACL_UNSAFE;
     mode = typeof mode === 'number' ? mode : CreateMode.PERSISTENT;
 
     assert(
@@ -495,7 +495,7 @@ Client.prototype.removeRecursive = function(path, version, callback) {
         async.eachSeries(children.reverse(), function (nodePath, next) {
             self.remove(nodePath, version, function(err) {
                 // Skip NO_NODE exception
-                if (err && err.getCode() === Exception.NO_NODE) {
+                if (err && err.getCode() === ExceptionImport.NO_NODE) {
                     next(null);
                     return;
                 }
@@ -718,7 +718,7 @@ Client.prototype.getACL = function (path, callback) {
 
                 if (Array.isArray(response.payload.acl)) {
                     acls = response.payload.acl.map(function (item) {
-                        return ACL.fromRecord(item);
+                        return ACLImport.fromRecord(item);
                     });
                 }
 
@@ -768,12 +768,12 @@ Client.prototype.exists = function (path, watcher, callback) {
         self,
         function (attempts, next) {
             self.connectionManager.queue(request, function (error, response) {
-                if (error && error.getCode() !== Exception.NO_NODE) {
+                if (error && error.getCode() !== ExceptionImport.NO_NODE) {
                     next(error);
                     return;
                 }
 
-                var existence = response.header.err === Exception.OK;
+                var existence = response.header.err === ExceptionImport.OK;
 
                 if (watcher) {
                     if (existence) {
@@ -930,7 +930,7 @@ Client.prototype.mkdirp = function (path, data, acls, mode, callback) {
         'callback must be a function.'
     );
 
-    acls = Array.isArray(acls) ? acls : ACL.OPEN_ACL_UNSAFE;
+    acls = Array.isArray(acls) ? acls : ACLImport.OPEN_ACL_UNSAFE;
     mode = typeof mode === 'number' ? mode : CreateMode.PERSISTENT;
 
     assert(
@@ -954,7 +954,7 @@ Client.prototype.mkdirp = function (path, data, acls, mode, callback) {
         currentPath = currentPath + '/' + node;
         self.create(currentPath, data, acls, mode, function (error) {
             // Skip node exist error.
-            if (error && error.getCode() === Exception.NODE_EXISTS) {
+            if (error && error.getCode() === ExceptionImport.NODE_EXISTS) {
                 next(null);
                 return;
             }
@@ -973,7 +973,7 @@ Client.prototype.mkdirp = function (path, data, acls, mode, callback) {
  * @return {Transaction} an instance of Transaction.
  */
 Client.prototype.transaction = function () {
-    return new Transaction(this.connectionManager);
+    return new TransactionImport(this.connectionManager);
 };
 
 /**
@@ -987,10 +987,10 @@ function createClient(connectionString, options) {
 }
 
 exports.createClient = createClient;
-exports.ACL = ACL;
-exports.Id = Id;
+exports.ACL = ACLImport;
+exports.Id = IdImport;
 exports.Permission = Permission;
 exports.CreateMode = CreateMode;
-exports.State = State;
+exports.State = StateImport;
 exports.Event = Event;
-exports.Exception = Exception;
+exports.Exception = ExceptionImport;

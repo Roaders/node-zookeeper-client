@@ -15,7 +15,6 @@ var fs = require('fs');
 var util = require('util');
 var assert = require('assert');
 
-var exports = module.exports;
 var jute = exports;
 
 // Constants.
@@ -487,185 +486,195 @@ Record.prototype.deserialize = function (buffer, offset) {
 };
 
 
-function TransactionRequest(ops) {
-    if (!(this instanceof TransactionRequest)) {
-        return new TransactionRequest(ops);
-    }
+export class TransactionRequest{
 
-    assert(Array.isArray(ops), 'ops must be a valid array.');
-    this.ops = ops;
-    this.records = [];
+    private ops: Array<any>;
+    private records = [];
 
-    this.ops.forEach(function (op) {
-        var mh = new jute.protocol.MultiHeader(op.type, false, -1),
-            record;
+    constructor(ops: Array<any>) {
+        if (!(this instanceof TransactionRequest)) {
+            return new TransactionRequest(ops);
+        }
 
-        this.records.push(mh);
+        assert(Array.isArray(ops), 'ops must be a valid array.');
 
-        switch (op.type) {
-        case jute.OP_CODES.CREATE:
-            record = new jute.protocol.CreateRequest();
-            record.path = op.path;
-            record.data = op.data;
-            record.acl = op.acls.map(function (item) {
-                return item.toRecord();
-            });
-            record.flags = op.mode;
-            break;
-        case jute.OP_CODES.DELETE:
-            record = new jute.protocol.DeleteRequest();
-            record.path = op.path;
-            record.version = op.version;
-            break;
-        case jute.OP_CODES.SET_DATA:
-            record = new jute.protocol.SetDataRequest();
-            record.path = op.path;
-            if (Buffer.isBuffer(op.data)) {
-                record.data = Buffer.alloc(op.data.length);
-                op.data.copy(record.data);
+        this.ops.forEach(function (op) {
+            var mh = new jute.protocol.MultiHeader(op.type, false, -1),
+                record;
+
+            this.records.push(mh);
+
+            switch (op.type) {
+            case jute.OP_CODES.CREATE:
+                record = new jute.protocol.CreateRequest();
+                record.path = op.path;
+                record.data = op.data;
+                record.acl = op.acls.map(function (item) {
+                    return item.toRecord();
+                });
+                record.flags = op.mode;
+                break;
+            case jute.OP_CODES.DELETE:
+                record = new jute.protocol.DeleteRequest();
+                record.path = op.path;
+                record.version = op.version;
+                break;
+            case jute.OP_CODES.SET_DATA:
+                record = new jute.protocol.SetDataRequest();
+                record.path = op.path;
+                if (Buffer.isBuffer(op.data)) {
+                    record.data = Buffer.alloc(op.data.length);
+                    op.data.copy(record.data);
+                }
+                record.version = op.version;
+                break;
+            case jute.OP_CODES.CHECK:
+                record = new jute.protocol.CheckVersionRequest();
+                record.path = op.path;
+                record.version = op.version;
+                break;
+            default:
+                throw new Error('Unknown op type: ' + op.type);
             }
-            record.version = op.version;
-            break;
-        case jute.OP_CODES.CHECK:
-            record = new jute.protocol.CheckVersionRequest();
-            record.path = op.path;
-            record.version = op.version;
-            break;
-        default:
-            throw new Error('Unknown op type: ' + op.type);
-        }
 
-        this.records.push(record);
-    }, this);
+            this.records.push(record);
+        }, this);
 
-    // Signal the end of the ops.
-    this.records.push(new jute.protocol.MultiHeader(-1, true, -1));
-}
-
-TransactionRequest.prototype.setChrootPath = function (path) {
-    this.records.forEach(function (record) {
-        record.setChrootPath(path);
-    });
-};
-
-
-TransactionRequest.prototype.byteLength = function () {
-    return this.records.reduce(function (length, record) {
-        return length + record.byteLength();
-    }, 0);
-};
-
-TransactionRequest.prototype.serialize = function (buffer, offset) {
-    assert(
-        Buffer.isBuffer(buffer),
-        'buffer must an instance of Node.js Buffer class.'
-    );
-
-    assert(
-        offset >= 0 && offset < buffer.length,
-        'offset: ' + offset + ' is out of buffer range.'
-    );
-
-    var size = this.byteLength();
-
-    if (offset + size > buffer.length) {
-        throw new Error('buffer does not have enough space.');
+        // Signal the end of the ops.
+        this.records.push(new jute.protocol.MultiHeader(-1, true, -1));
     }
 
-    this.records.forEach(function (record) {
-        offset += record.serialize(
-            buffer,
-            offset
+    public setChrootPath (path) {
+        this.records.forEach(function (record) {
+            record.setChrootPath(path);
+        });
+    };
+    
+    
+    public byteLength  () {
+        return this.records.reduce(function (length, record) {
+            return length + record.byteLength();
+        }, 0);
+    };
+    
+    public serialize (buffer, offset) {
+        assert(
+            Buffer.isBuffer(buffer),
+            'buffer must an instance of Node.js Buffer class.'
         );
-    });
-
-    return size;
-};
-
-function TransactionResponse() {
-    if (!(this instanceof TransactionResponse)) {
-        return new TransactionResponse();
-    }
-
-    this.results = [];
-    this.chrootPath = undefined;
+    
+        assert(
+            offset >= 0 && offset < buffer.length,
+            'offset: ' + offset + ' is out of buffer range.'
+        );
+    
+        var size = this.byteLength();
+    
+        if (offset + size > buffer.length) {
+            throw new Error('buffer does not have enough space.');
+        }
+    
+        this.records.forEach(function (record) {
+            offset += record.serialize(
+                buffer,
+                offset
+            );
+        });
+    
+        return size;
+    };
 }
 
-TransactionResponse.prototype.setChrootPath = function (path) {
-    this.chrootPath = path;
-};
 
-TransactionResponse.prototype.deserialize = function (buffer, offset) {
-    assert(
-        Buffer.isBuffer(buffer),
-        'buffer must an instance of Node.js Buffer class.'
-    );
 
-    assert(
-        offset >= 0 && offset < buffer.length,
-        'offset: ' + offset + ' is out of buffer range.'
-    );
+export class TransactionResponse {
 
-    var self = this,
-        bytesRead = 0,
-        header,
-        response;
-
-    while (true) { // eslint-disable-line no-constant-condition
-        header = new jute.protocol.MultiHeader();
-        bytesRead += header.deserialize(buffer, offset + bytesRead);
-
-        if (header.done) {
-            break;
-        }
-
-        switch (header.type) {
-        case jute.OP_CODES.CREATE:
-            response = new jute.protocol.CreateResponse();
-            response.setChrootPath(self.chrootPath);
-            bytesRead += response.deserialize(buffer, offset + bytesRead);
-            self.results.push({
-                type : header.type,
-                path : response.path
-            });
-            break;
-        case jute.OP_CODES.DELETE:
-            self.results.push({
-                type : header.type
-            });
-            break;
-        case jute.OP_CODES.SET_DATA:
-            response = new jute.protocol.SetDataResponse();
-            response.setChrootPath(self.chrootPath);
-            bytesRead += response.deserialize(buffer, offset + bytesRead);
-            self.results.push({
-                type : header.type,
-                stat : response.stat
-            });
-            break;
-        case jute.OP_CODES.CHECK:
-            self.results.push({
-                type : header.type
-            });
-            break;
-        case jute.OP_CODES.ERROR:
-            response = new jute.protocol.ErrorResponse();
-            response.setChrootPath(self.chrootPath);
-            bytesRead += response.deserialize(buffer, offset + bytesRead);
-            self.results.push({
-                type : header.type,
-                err : response.err
-            });
-            break;
-        default:
-            throw new Error(
-                'Unknown type: ' + header.type + ' in transaction response.'
-            );
+    constructor(){
+        if (!(this instanceof TransactionResponse)) {
+            return new TransactionResponse();
         }
     }
+    private results = [];
+    private chrootPath = undefined;
 
-    return bytesRead;
-};
+    public setChrootPath = function (path) {
+        this.chrootPath = path;
+    };
+    
+    public deserialize = function (buffer, offset) {
+        assert(
+            Buffer.isBuffer(buffer),
+            'buffer must an instance of Node.js Buffer class.'
+        );
+    
+        assert(
+            offset >= 0 && offset < buffer.length,
+            'offset: ' + offset + ' is out of buffer range.'
+        );
+    
+        var self = this,
+            bytesRead = 0,
+            header,
+            response;
+    
+        while (true) { // eslint-disable-line no-constant-condition
+            header = new jute.protocol.MultiHeader();
+            bytesRead += header.deserialize(buffer, offset + bytesRead);
+    
+            if (header.done) {
+                break;
+            }
+    
+            switch (header.type) {
+            case jute.OP_CODES.CREATE:
+                response = new jute.protocol.CreateResponse();
+                response.setChrootPath(self.chrootPath);
+                bytesRead += response.deserialize(buffer, offset + bytesRead);
+                self.results.push({
+                    type : header.type,
+                    path : response.path
+                });
+                break;
+            case jute.OP_CODES.DELETE:
+                self.results.push({
+                    type : header.type
+                });
+                break;
+            case jute.OP_CODES.SET_DATA:
+                response = new jute.protocol.SetDataResponse();
+                response.setChrootPath(self.chrootPath);
+                bytesRead += response.deserialize(buffer, offset + bytesRead);
+                self.results.push({
+                    type : header.type,
+                    stat : response.stat
+                });
+                break;
+            case jute.OP_CODES.CHECK:
+                self.results.push({
+                    type : header.type
+                });
+                break;
+            case jute.OP_CODES.ERROR:
+                response = new jute.protocol.ErrorResponse();
+                response.setChrootPath(self.chrootPath);
+                bytesRead += response.deserialize(buffer, offset + bytesRead);
+                self.results.push({
+                    type : header.type,
+                    err : response.err
+                });
+                break;
+            default:
+                throw new Error(
+                    'Unknown type: ' + header.type + ' in transaction response.'
+                );
+            }
+        }
+    
+        return bytesRead;
+    };
+}
+
+
 
 /**
  * This class represent the request the client sends over the wire to ZooKeeper
@@ -676,45 +685,48 @@ TransactionResponse.prototype.deserialize = function (buffer, offset) {
  * @param header {Record} The request header record.
  * @param payload {payload} The request payload record.
  */
-function Request(header, payload) {
-    this.header = header;
-    this.payload = payload;
+export class Request {
+
+    constructor(public readonly header, public readonly payload){
+    }
+
+    /**
+     * Serialize the request to a buffer.
+     * @method toBuffer
+     * @return {Buffer} The buffer which contains the serialized request.
+     */
+    public toBuffer() {
+        var size = 0,
+            offset = 0,
+            buffer;
+
+        if (this.header) {
+            size += this.header.byteLength();
+        }
+
+        if (this.payload) {
+            size += this.payload.byteLength();
+        }
+
+        // Needs 4 extra for the length field (Int32)
+        buffer = Buffer.alloc(size + 4);
+
+        buffer.writeInt32BE(size, offset);
+        offset += 4;
+
+        if (this.header) {
+            offset += this.header.serialize(buffer, offset);
+        }
+
+        if (this.payload) {
+            offset += this.payload.serialize(buffer, offset);
+        }
+
+        return buffer;
+    };
 }
 
-/**
- * Serialize the request to a buffer.
- * @method toBuffer
- * @return {Buffer} The buffer which contains the serialized request.
- */
-Request.prototype.toBuffer = function () {
-    var size = 0,
-        offset = 0,
-        buffer;
 
-    if (this.header) {
-        size += this.header.byteLength();
-    }
-
-    if (this.payload) {
-        size += this.payload.byteLength();
-    }
-
-    // Needs 4 extra for the length field (Int32)
-    buffer = Buffer.alloc(size + 4);
-
-    buffer.writeInt32BE(size, offset);
-    offset += 4;
-
-    if (this.header) {
-        offset += this.header.serialize(buffer, offset);
-    }
-
-    if (this.payload) {
-        offset += this.payload.serialize(buffer, offset);
-    }
-
-    return buffer;
-};
 
 /**
  * This class represent the response that ZooKeeper sends back to the client.
@@ -724,9 +736,9 @@ Request.prototype.toBuffer = function () {
  * @param header {Record} The request header record.
  * @param payload {payload} The request payload record.
  */
-function Response(header, payload) {
-    this.header = header;
-    this.payload = payload;
+export class Response{
+    constructor(public readonly header, public readonly payload){
+    }
 }
 
 /**

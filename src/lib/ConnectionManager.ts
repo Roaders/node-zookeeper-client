@@ -10,10 +10,10 @@ var utils = require('util');
 var events = require('events');
 
 var jute = require('./jute');
-var ConnectionStringParser = require('./ConnectionStringParser.js');
-var WatcherManager = require('./WatcherManager.js');
-var PacketQueue = require('./PacketQueue.js');
-var Exception = require('./Exception.js');
+var ConnectionStringParserImport = require('./ConnectionStringParser.js');
+var WatcherManagerImport = require('./WatcherManager.js');
+var PacketQueueImport = require('./PacketQueue.js');
+var ExceptionImport = require('./Exception.js');
 
 /**
  * This class manages the connection between the client and the ensemble.
@@ -46,8 +46,8 @@ var STATES = { // Connection States.
 function ConnectionManager(connectionString, options, stateListener) {
     events.EventEmitter.call(this);
 
-    this.watcherManager = new WatcherManager();
-    this.connectionStringParser = new ConnectionStringParser(connectionString);
+    this.watcherManager = new WatcherManagerImport();
+    this.connectionStringParser = new ConnectionStringParserImport(connectionString);
 
     this.servers = this.connectionStringParser.getServers();
     this.chrootPath = this.connectionStringParser.getChrootPath();
@@ -88,14 +88,14 @@ function ConnectionManager(connectionString, options, stateListener) {
 
     this.pendingBuffer = null;
 
-    this.packetQueue = new PacketQueue();
+    this.packetQueue = new PacketQueueImport();
     this.packetQueue.on('readable', this.onPacketQueueReadable.bind(this));
     this.pendingQueue = [];
 
     this.on('state', stateListener);
 }
 
-utils.inherits(ConnectionManager, events.EventEmitter);
+utils.inherits(ConnectionManagerImport, events.EventEmitter);
 
 /**
  * Update the session timeout and related timeout variables.
@@ -104,7 +104,7 @@ utils.inherits(ConnectionManager, events.EventEmitter);
  * @private
  * @param sessionTimeout {Number} Milliseconds of the timeout value.
  */
-ConnectionManager.prototype.updateTimeout = function (sessionTimeout) {
+ConnectionManagerImport.prototype.updateTimeout = function (sessionTimeout) {
     this.sessionTimeout = sessionTimeout;
 
     // Designed to have time to try all the servers.
@@ -128,7 +128,7 @@ ConnectionManager.prototype.updateTimeout = function (sessionTimeout) {
  * @param callback {Function} callback function.
  *
  */
-ConnectionManager.prototype.findNextServer = function (callback) {
+ConnectionManagerImport.prototype.findNextServer = function (callback) {
     var self = this;
 
     self.nextServerIndex %= self.servers.length;
@@ -158,7 +158,7 @@ ConnectionManager.prototype.findNextServer = function (callback) {
  * @method setState
  * @param state {Number} The state to be set.
  */
-ConnectionManager.prototype.setState = function (state) {
+ConnectionManagerImport.prototype.setState = function (state) {
     if (typeof state !== 'number') {
         throw new Error('state must be a valid number.');
     }
@@ -169,49 +169,49 @@ ConnectionManager.prototype.setState = function (state) {
     }
 };
 
-ConnectionManager.prototype.registerDataWatcher = function (path, watcher) {
+ConnectionManagerImport.prototype.registerDataWatcher = function (path, watcher) {
     this.watcherManager.registerDataWatcher(path, watcher);
 };
 
-ConnectionManager.prototype.registerChildWatcher = function (path, watcher) {
+ConnectionManagerImport.prototype.registerChildWatcher = function (path, watcher) {
     this.watcherManager.registerChildWatcher(path, watcher);
 };
 
-ConnectionManager.prototype.registerExistenceWatcher = function (path, watcher) {
+ConnectionManagerImport.prototype.registerExistenceWatcher = function (path, watcher) {
     this.watcherManager.registerExistenceWatcher(path, watcher);
 };
 
-ConnectionManager.prototype.cleanupPendingQueue = function (errorCode) {
+ConnectionManagerImport.prototype.cleanupPendingQueue = function (errorCode) {
     var pendingPacket = this.pendingQueue.shift();
 
     while (pendingPacket) {
         if (pendingPacket.callback) {
-            pendingPacket.callback(Exception.create(errorCode));
+            pendingPacket.callback(ExceptionImport.create(errorCode));
         }
 
         pendingPacket = this.pendingQueue.shift();
     }
 };
 
-ConnectionManager.prototype.getSessionId = function () {
+ConnectionManagerImport.prototype.getSessionId = function () {
     var result = Buffer.alloc(8);
 
     this.sessionId.copy(result);
     return result;
 };
 
-ConnectionManager.prototype.getSessionPassword = function () {
+ConnectionManagerImport.prototype.getSessionPassword = function () {
     var result = Buffer.alloc(16);
 
     this.sessionPassword.copy(result);
     return result;
 };
 
-ConnectionManager.prototype.getSessionTimeout = function () {
+ConnectionManagerImport.prototype.getSessionTimeout = function () {
     return this.sessionTimeout;
 };
 
-ConnectionManager.prototype.connect = function () {
+ConnectionManagerImport.prototype.connect = function () {
     var self = this;
 
     self.setState(STATES.CONNECTING);
@@ -235,7 +235,7 @@ ConnectionManager.prototype.connect = function () {
     });
 };
 
-ConnectionManager.prototype.close = function () {
+ConnectionManagerImport.prototype.close = function () {
     var self = this,
         header = new jute.protocol.RequestHeader(),
         request;
@@ -248,26 +248,26 @@ ConnectionManager.prototype.close = function () {
     self.queue(request);
 };
 
-ConnectionManager.prototype.onSocketClosed = function (hasError) {
+ConnectionManagerImport.prototype.onSocketClosed = function (hasError) {
     var retry = false,
         errorCode,
         pendingPacket;
 
     switch (this.state) {
     case STATES.CLOSING:
-        errorCode = Exception.CONNECTION_LOSS;
+        errorCode = ExceptionImport.CONNECTION_LOSS;
         retry = false;
         break;
     case STATES.SESSION_EXPIRED:
-        errorCode = Exception.SESSION_EXPIRED;
+        errorCode = ExceptionImport.SESSION_EXPIRED;
         retry = false;
         break;
     case STATES.AUTHENTICATION_FAILED:
-        errorCode = Exception.AUTH_FAILED;
+        errorCode = ExceptionImport.AUTH_FAILED;
         retry = false;
         break;
     default:
-        errorCode = Exception.CONNECTION_LOSS;
+        errorCode = ExceptionImport.CONNECTION_LOSS;
         retry = true;
     }
 
@@ -281,7 +281,7 @@ ConnectionManager.prototype.onSocketClosed = function (hasError) {
     }
 };
 
-ConnectionManager.prototype.onSocketError = function (error) {
+ConnectionManagerImport.prototype.onSocketError = function (error) {
     if (this.connectTimeoutHandler) {
         clearTimeout(this.connectTimeoutHandler);
     }
@@ -290,13 +290,13 @@ ConnectionManager.prototype.onSocketError = function (error) {
     // we will retry connect in that listener function.
 };
 
-ConnectionManager.prototype.onSocketConnectTimeout = function () {
+ConnectionManagerImport.prototype.onSocketConnectTimeout = function () {
     // Destroy the current socket so the socket closed event
     // will be trigger.
     this.socket.destroy();
 };
 
-ConnectionManager.prototype.onSocketConnected = function () {
+ConnectionManagerImport.prototype.onSocketConnected = function () {
     var connectRequest,
         authRequest,
         setWatchesRequest,
@@ -356,7 +356,7 @@ ConnectionManager.prototype.onSocketConnected = function () {
     }
 };
 
-ConnectionManager.prototype.onSocketTimeout = function () {
+ConnectionManagerImport.prototype.onSocketTimeout = function () {
     var header,
         request;
 
@@ -380,7 +380,7 @@ ConnectionManager.prototype.onSocketTimeout = function () {
 };
 
 /* eslint-disable complexity,max-depth */
-ConnectionManager.prototype.onSocketData = function (buffer) {
+ConnectionManagerImport.prototype.onSocketData = function (buffer) {
     var self = this,
         offset = 0,
         size = 0,
@@ -461,7 +461,7 @@ ConnectionManager.prototype.onSocketData = function (buffer) {
         case jute.XID_PING:
             break;
         case jute.XID_AUTHENTICATION:
-            if (responseHeader.err === Exception.AUTH_FAILED) {
+            if (responseHeader.err === ExceptionImport.AUTH_FAILED) {
                 self.setState(STATES.AUTHENTICATION_FAILED);
             }
             break;
@@ -567,7 +567,7 @@ ConnectionManager.prototype.onSocketData = function (buffer) {
                 }
             } else if (pendingPacket.callback) {
                 pendingPacket.callback(
-                    Exception.create(responseHeader.err),
+                    ExceptionImport.create(responseHeader.err),
                     new jute.Response(responseHeader, null)
                 );
             }
@@ -582,12 +582,12 @@ ConnectionManager.prototype.onSocketData = function (buffer) {
 
 /* eslint-enable complexity,max-depth */
 
-ConnectionManager.prototype.onSocketDrain = function () {
+ConnectionManagerImport.prototype.onSocketDrain = function () {
     // Trigger write on socket.
     this.onPacketQueueReadable();
 };
 
-ConnectionManager.prototype.onPacketQueueReadable = function () {
+ConnectionManagerImport.prototype.onPacketQueueReadable = function () {
     var packet,
         header;
 
@@ -636,7 +636,7 @@ ConnectionManager.prototype.onPacketQueueReadable = function () {
     }
 };
 
-ConnectionManager.prototype.addAuthInfo = function (scheme, auth) {
+ConnectionManagerImport.prototype.addAuthInfo = function (scheme, auth) {
     if (!scheme || typeof scheme !== 'string') {
         throw new Error('scheme must be a non-empty string.');
     }
@@ -683,7 +683,7 @@ ConnectionManager.prototype.addAuthInfo = function (scheme, auth) {
     }
 };
 
-ConnectionManager.prototype.queue = function (request, callback) {
+ConnectionManagerImport.prototype.queue = function (request, callback) {
     if (typeof request !== 'object') {
         throw new Error('request must be a valid instance of jute.Request.');
     }
@@ -714,22 +714,22 @@ ConnectionManager.prototype.queue = function (request, callback) {
                 callback : callback
             });
         } else {
-            callback(Exception.create(Exception.CONNECTION_LOSS));
+            callback(ExceptionImport.create(ExceptionImport.CONNECTION_LOSS));
         }
         break;
     case STATES.CLOSED:
-        callback(Exception.create(Exception.CONNECTION_LOSS));
+        callback(ExceptionImport.create(ExceptionImport.CONNECTION_LOSS));
         return;
     case STATES.SESSION_EXPIRED:
-        callback(Exception.create(Exception.SESSION_EXPIRED));
+        callback(ExceptionImport.create(ExceptionImport.SESSION_EXPIRED));
         return;
     case STATES.AUTHENTICATION_FAILED:
-        callback(Exception.create(Exception.AUTH_FAILED));
+        callback(ExceptionImport.create(ExceptionImport.AUTH_FAILED));
         return;
     default:
         throw new Error('Unknown state: ' + this.state);
     }
 };
 
-module.exports = ConnectionManager;
+module.exports = ConnectionManagerImport;
 module.exports.STATES = STATES;

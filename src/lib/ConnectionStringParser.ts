@@ -81,16 +81,16 @@ function ConnectionStringParser(connectionString) {
  * @method getConnectionString
  * @return The connection string.
  */
-ConnectionStringParser.prototype.getConnectionString = function () {
+ConnectionStringParserImport.prototype.getConnectionString = function () {
     return this.connectionString;
 };
 
-ConnectionStringParser.prototype.getChrootPath = function () {
+ConnectionStringParserImport.prototype.getChrootPath = function () {
     return this.chrootPath;
 };
 
-ConnectionStringParser.prototype.getServers = function () {
+ConnectionStringParserImport.prototype.getServers = function () {
     return this.servers.slice(0);
 };
 
-module.exports = ConnectionStringParser;
+module.exports = ConnectionStringParserImport;

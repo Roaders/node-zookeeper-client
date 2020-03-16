@@ -5,8 +5,6 @@
  * for terms.
  */
 
-
-var util   = require('util');
 var assert = require('assert');
 
 // All error codes.
@@ -63,71 +61,71 @@ function validateCode(code) {
  * @param [path] {String} Node path of the exception, optional.
  * @param ctor {Function} The function to start in stack trace.
  */
-function Exception(code, name, path, ctor) {
-    if (!ctor) {
-        ctor = path;
-        path = undefined;
+export class Exception extends Error{
+    constructor(private code, name, private path, ctor) {
+        super();
+        if (!ctor) {
+            ctor = path;
+            path = undefined;
+        }
+    
+        validateCode(code);
+        assert(
+            name && typeof name === 'string',
+            'name must be a non-empty string.'
+        );
+        assert(typeof ctor === 'function', 'ctor must be a function.');
+    
+        Error.captureStackTrace(this, ctor || ExceptionImport);
+    
+        this.message = 'Exception: ' + name + '[' + code + ']';
+    
+        this.name = name;
+
+        if (path) {
+            this.message += '@' + path;
+        }
     }
 
-    validateCode(code);
-    assert(
-        name && typeof name === 'string',
-        'name must be a non-empty string.'
-    );
-    assert(typeof ctor === 'function', 'ctor must be a function.');
+    /**
+     * Return the code of the Exception.
+     *
+     * @method getCode
+     * @return {Number} The code.
+     */
+    public getCode() {
+        return this.code;
+    };
 
-    Error.captureStackTrace(this, ctor || Exception);
-    this.code = code;
-    this.name = name;
-    this.path = path;
+    /**
+     * Return the name of the Exception.
+     *
+     * @method getName
+     * @return {String} The name.
+     */
+    public getName() {
+        return this.name;
+    };
 
-    this.message = 'Exception: ' + name + '[' + code + ']';
+    /**
+     * Return the path of the Exception.
+     *
+     * @method getPath
+     * @return {String} The path.
+     */
+    public getPath() {
+        return this.path;
+    };
 
-    if (path) {
-        this.message += '@' + path;
-    }
+    /**
+     *
+     * @method toString
+     * @return {String} The readable form of the exception.
+     */
+    public toString() {
+        return this.message;
+    };
 }
-
-util.inherits(Exception, Error);
-
-/**
- * Return the code of the Exception.
- *
- * @method getCode
- * @return {Number} The code.
- */
-Exception.prototype.getCode = function () {
-    return this.code;
-};
-
-/**
- * Return the name of the Exception.
- *
- * @method getName
- * @return {String} The name.
- */
-Exception.prototype.getName = function () {
-    return this.name;
-};
-
-/**
- * Return the path of the Exception.
- *
- * @method getPath
- * @return {String} The path.
- */
-Exception.prototype.getPath = function () {
-    return this.path;
-};
-
-/**
- *
- * @method toString
- * @return {String} The readable form of the exception.
- */
-Exception.prototype.toString = function () {
-    return this.message;
-};
 
 /**
  * The factory method to create an instance of Exception.
@@ -136,7 +134,7 @@ Exception.prototype.toString = function () {
  * @param code {Number} Exception code.
  * @param path {String} Node path of the exception, optional.
  */
-function create(code, path) {
+export function create(code, path) {
     validateCode(code);
 
     var name,
@@ -152,11 +150,9 @@ function create(code, path) {
         i += 1;
     }
 
-    return new Exception(code, name, path, create);
+    return new ExceptionImport(code, name, path, create);
 }
 
-module.exports = Exception;
-module.exports.create = create;
 
 /**
  * Expose all the error codes.
