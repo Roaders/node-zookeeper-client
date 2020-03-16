@@ -15,7 +15,7 @@ var assert = require('assert');
  * @method validate
  * @param path {String} The path of a node.
  */
-function validate(path) {
+export function validate(path) {
     assert(
         path && typeof path === 'string',
         'Node path must be a non-empty string.'

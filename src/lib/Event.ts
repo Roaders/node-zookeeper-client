@@ -8,7 +8,7 @@
 var assert = require('assert');
 
 // Event types
-var TYPES = {
+export const TYPES = {
     NODE_CREATED : 1,
     NODE_DELETED : 2,
     NODE_DATA_CHANGED : 3,
@@ -44,63 +44,63 @@ function validateType(type) {
  * @param name {String} The name of the event.
  * @param [path] {String} The node path of the event.
  */
-function ZkEvent(type, name, path) {
-    validateType(type);
-    assert(
-        name && typeof name === 'string',
-        'name must be a non-empty string.'
-    );
-
-    this.type = type;
-    this.name = name;
-    this.path = path;
-}
-
-/**
- * Return the type of the event.
- *
- * @method getType
- * @return {String} The name.
- */
-ZkEventImport.prototype.getType = function () {
-    return this.type;
-};
-
-/**
- * Return the name of the event.
- *
- * @method getName
- * @return {String} The name.
- */
-ZkEventImport.prototype.getName = function () {
-    return this.name;
-};
-
-/**
- * Return the path of the event.
- *
- * @method getPath
- * @return {String} The path.
- */
-ZkEventImport.prototype.getPath = function () {
-    return this.path;
-};
-
-/**
- * Return a string representation of the event.
- *
- * @method toString
- * @return {String} The string representation.
- */
-ZkEventImport.prototype.toString = function () {
-    var result = this.name + '[' + this.type + ']';
-
-    if (this.path) {
-        result += '@' + this.path;
+export class Event{
+    constructor (private type, private name: string, private path) {
+        validateType(type);
+        assert(
+            name && typeof name === 'string',
+            'name must be a non-empty string.'
+        );
     }
 
-    return result;
-};
+        /**
+     * Return the type of the event.
+     *
+     * @method getType
+     * @return {String} The name.
+     */
+    private getType () {
+        return this.type;
+    };
+
+    /**
+     * Return the name of the event.
+     *
+     * @method getName
+     * @return {String} The name.
+     */
+    private getName () {
+        return this.name;
+    };
+
+    /**
+     * Return the path of the event.
+     *
+     * @method getPath
+     * @return {String} The path.
+     */
+    private getPath () {
+        return this.path;
+    };
+
+    /**
+     * Return a string representation of the event.
+     *
+     * @method toString
+     * @return {String} The string representation.
+     */
+    private toString () {
+        var result = this.name + '[' + this.type + ']';
+
+        if (this.path) {
+            result += '@' + this.path;
+        }
+
+        return result;
+    };
+}
+
+
 
 /**
  * Factory method to crate an instance of event from an instance of
@@ -126,11 +126,5 @@ export function create(watcherEvent) {
         i += 1;
     }
 
-    return new ZkEventImport(watcherEvent.type, name, watcherEvent.path);
+    return new Event(watcherEvent.type, name, watcherEvent.path);
 }
-
-module.exports = Event;
-module.exports.create = create;
-Object.keys(TYPES).forEach(function (key) {
-    module.exports[key] = TYPES[key];
-});

@@ -5,15 +5,15 @@
  * for terms.
  */
 
+import { EventEmitter } from "events";
+import { Exception, EXCEPTION_CODES } from "./Exception";
+import { PacketQueue } from "./PacketQueue";
+import { ConnectionStringParser } from "./ConnectionStringParser";
+import { WatcherManager } from "./WatcherManager";
+
 var net = require('net');
-var utils = require('util');
-var events = require('events');
 
 var jute = require('./jute');
-var ConnectionStringParserImport = require('./ConnectionStringParser.js');
-var WatcherManagerImport = require('./WatcherManager.js');
-var PacketQueueImport = require('./PacketQueue.js');
-var ExceptionImport = require('./Exception.js');
 
 /**
  * This class manages the connection between the client and the ensemble.
@@ -22,7 +22,7 @@ var ExceptionImport = require('./Exception.js');
  */
 
 // Constants.
-var STATES = { // Connection States.
+export const STATES = { // Connection States.
     DISCONNECTED : 0,
     CONNECTING : 1,
     CONNECTED : 2,
@@ -43,284 +43,644 @@ var STATES = { // Connection States.
  * @param options {Object} Client options.
  * @param stateListener {Object} Listener for state changes.
  */
-function ConnectionManager(connectionString, options, stateListener) {
-    events.EventEmitter.call(this);
+export class ConnectionManager extends EventEmitter{
 
-    this.watcherManager = new WatcherManagerImport();
-    this.connectionStringParser = new ConnectionStringParserImport(connectionString);
+    watcherManager: any;
+    connectionStringParser: any;
+    servers: any;
+    chrootPath: any;
+    nextServerIndex: number;
+    serverAttempts: number;
+    state: number;
+    options: any;
+    spinDelay: any;
+    connectTimeoutHandler: any;
+    xid: number;
+    sessionId: Buffer;
+    sessionPassword: Buffer;
+    credentials: any[];
+    zxid: Buffer;
+    pendingBuffer: any;
+    packetQueue: any;
+    pendingQueue: any[];
+    sessionTimeout: number;
+    connectTimeout: number;
+    pingTimeout: number;
+    socket: any;
 
-    this.servers = this.connectionStringParser.getServers();
-    this.chrootPath = this.connectionStringParser.getChrootPath();
-    this.nextServerIndex = 0;
-    this.serverAttempts = 0;
-
-    this.state = STATES.DISCONNECTED;
-
-    this.options = options;
-    this.spinDelay = options.spinDelay;
-
-    this.updateTimeout(options.sessionTimeout);
-    this.connectTimeoutHandler = null;
-
-    this.xid = 0;
-
-    this.sessionId = Buffer.alloc(8);
-    if (Buffer.isBuffer(options.sessionId)) {
-        options.sessionId.copy(this.sessionId);
-    } else {
-        this.sessionId.fill(0);
+    constructor(connectionString, options, stateListener) {
+        super();
+        
+        this.watcherManager = new WatcherManager();
+        this.connectionStringParser = new ConnectionStringParser(connectionString);
+    
+        this.servers = this.connectionStringParser.getServers();
+        this.chrootPath = this.connectionStringParser.getChrootPath();
+        this.nextServerIndex = 0;
+        this.serverAttempts = 0;
+    
+        this.state = STATES.DISCONNECTED;
+    
+        this.options = options;
+        this.spinDelay = options.spinDelay;
+    
+        this.updateTimeout(options.sessionTimeout);
+        this.connectTimeoutHandler = null;
+    
+        this.xid = 0;
+    
+        this.sessionId = Buffer.alloc(8);
+        if (Buffer.isBuffer(options.sessionId)) {
+            options.sessionId.copy(this.sessionId);
+        } else {
+            this.sessionId.fill(0);
+        }
+    
+        this.sessionPassword = Buffer.alloc(16);
+        if (Buffer.isBuffer(options.sessionPassword)) {
+            options.sessionPassword.copy(this.sessionPassword);
+        } else {
+            this.sessionPassword.fill(0);
+        }
+    
+        // scheme:auth pairs
+        this.credentials = [];
+    
+        // Last seen zxid.
+        this.zxid = Buffer.alloc(8);
+        this.zxid.fill(0);
+    
+    
+        this.pendingBuffer = null;
+    
+        this.packetQueue = new PacketQueue();
+        this.packetQueue.on('readable', this.onPacketQueueReadable.bind(this));
+        this.pendingQueue = [];
+    
+        this.on('state', stateListener);
     }
 
-    this.sessionPassword = Buffer.alloc(16);
-    if (Buffer.isBuffer(options.sessionPassword)) {
-        options.sessionPassword.copy(this.sessionPassword);
-    } else {
-        this.sessionPassword.fill(0);
-    }
+    /**
+     * Update the session timeout and related timeout variables.
+     *
+     * @method updateTimeout
+     * @private
+     * @param sessionTimeout {Number} Milliseconds of the timeout value.
+     */
+    public updateTimeout(sessionTimeout: number) {
+        this.sessionTimeout = sessionTimeout;
 
-    // scheme:auth pairs
-    this.credentials = [];
+        // Designed to have time to try all the servers.
+        this.connectTimeout = Math.floor(sessionTimeout / this.servers.length);
 
-    // Last seen zxid.
-    this.zxid = Buffer.alloc(8);
-    this.zxid.fill(0);
+        // We at least send out one ping one third of the session timeout, so
+        // the read timeout is two third of the session timeout.
+        this.pingTimeout = Math.floor(this.sessionTimeout / 3);
+        // this.readTimeout = Math.floor(sessionTimeout * 2 / 3);
+    };
 
+    /**
+     * Find the next available server to connect. If all server has been tried,
+     * it will wait for a random time between 0 to spin delay before call back
+     * with the next server.
+     *
+     * callback prototype:
+     * callback(server);
+     *
+     * @method findNextServer
+     * @param callback {Function} callback function.
+     *
+     */
+    public findNextServer(callback) {
+        var self = this;
 
-    this.pendingBuffer = null;
+        self.nextServerIndex %= self.servers.length;
 
-    this.packetQueue = new PacketQueueImport();
-    this.packetQueue.on('readable', this.onPacketQueueReadable.bind(this));
-    this.pendingQueue = [];
+        if (self.serverAttempts === self.servers.length) {
+            setTimeout(function () {
+                callback(self.servers[self.nextServerIndex]);
+                self.nextServerIndex += 1;
 
-    this.on('state', stateListener);
-}
+                // reset attempts since we already waited for enough time.
+                self.serverAttempts = 0;
+            }, Math.random() * self.spinDelay);
+        } else {
+            self.serverAttempts += 1;
 
-utils.inherits(ConnectionManagerImport, events.EventEmitter);
+            process.nextTick(function () {
+                callback(self.servers[self.nextServerIndex]);
+                self.nextServerIndex += 1;
+            });
+        }
+    };
 
-/**
- * Update the session timeout and related timeout variables.
- *
- * @method updateTimeout
- * @private
- * @param sessionTimeout {Number} Milliseconds of the timeout value.
- */
-ConnectionManagerImport.prototype.updateTimeout = function (sessionTimeout) {
-    this.sessionTimeout = sessionTimeout;
-
-    // Designed to have time to try all the servers.
-    this.connectTimeout = Math.floor(sessionTimeout / this.servers.length);
-
-    // We at least send out one ping one third of the session timeout, so
-    // the read timeout is two third of the session timeout.
-    this.pingTimeout = Math.floor(this.sessionTimeout / 3);
-    // this.readTimeout = Math.floor(sessionTimeout * 2 / 3);
-};
-
-/**
- * Find the next available server to connect. If all server has been tried,
- * it will wait for a random time between 0 to spin delay before call back
- * with the next server.
- *
- * callback prototype:
- * callback(server);
- *
- * @method findNextServer
- * @param callback {Function} callback function.
- *
- */
-ConnectionManagerImport.prototype.findNextServer = function (callback) {
-    var self = this;
-
-    self.nextServerIndex %= self.servers.length;
-
-    if (self.serverAttempts === self.servers.length) {
-        setTimeout(function () {
-            callback(self.servers[self.nextServerIndex]);
-            self.nextServerIndex += 1;
-
-            // reset attempts since we already waited for enough time.
-            self.serverAttempts = 0;
-        }, Math.random() * self.spinDelay);
-    } else {
-        self.serverAttempts += 1;
-
-        process.nextTick(function () {
-            callback(self.servers[self.nextServerIndex]);
-            self.nextServerIndex += 1;
-        });
-    }
-};
-
-/**
- * Change the current state to the given state if the given state is different
- * from current state. Emit the state change event with the changed state.
- *
- * @method setState
- * @param state {Number} The state to be set.
- */
-ConnectionManagerImport.prototype.setState = function (state) {
-    if (typeof state !== 'number') {
-        throw new Error('state must be a valid number.');
-    }
-
-    if (this.state !== state) {
-        this.state = state;
-        this.emit('state', this.state);
-    }
-};
-
-ConnectionManagerImport.prototype.registerDataWatcher = function (path, watcher) {
-    this.watcherManager.registerDataWatcher(path, watcher);
-};
-
-ConnectionManagerImport.prototype.registerChildWatcher = function (path, watcher) {
-    this.watcherManager.registerChildWatcher(path, watcher);
-};
-
-ConnectionManagerImport.prototype.registerExistenceWatcher = function (path, watcher) {
-    this.watcherManager.registerExistenceWatcher(path, watcher);
-};
-
-ConnectionManagerImport.prototype.cleanupPendingQueue = function (errorCode) {
-    var pendingPacket = this.pendingQueue.shift();
-
-    while (pendingPacket) {
-        if (pendingPacket.callback) {
-            pendingPacket.callback(ExceptionImport.create(errorCode));
+    /**
+     * Change the current state to the given state if the given state is different
+     * from current state. Emit the state change event with the changed state.
+     *
+     * @method setState
+     * @param state {Number} The state to be set.
+     */
+    public setState(state) {
+        if (typeof state !== 'number') {
+            throw new Error('state must be a valid number.');
         }
 
-        pendingPacket = this.pendingQueue.shift();
-    }
-};
+        if (this.state !== state) {
+            this.state = state;
+            this.emit('state', this.state);
+        }
+    };
 
-ConnectionManagerImport.prototype.getSessionId = function () {
-    var result = Buffer.alloc(8);
+    public registerDataWatcher(path, watcher) {
+        this.watcherManager.registerDataWatcher(path, watcher);
+    };
 
-    this.sessionId.copy(result);
-    return result;
-};
+    public registerChildWatcher(path, watcher) {
+        this.watcherManager.registerChildWatcher(path, watcher);
+    };
 
-ConnectionManagerImport.prototype.getSessionPassword = function () {
-    var result = Buffer.alloc(16);
+    public registerExistenceWatcher(path, watcher) {
+        this.watcherManager.registerExistenceWatcher(path, watcher);
+    };
 
-    this.sessionPassword.copy(result);
-    return result;
-};
+    public cleanupPendingQueue(errorCode) {
+        var pendingPacket = this.pendingQueue.shift();
 
-ConnectionManagerImport.prototype.getSessionTimeout = function () {
-    return this.sessionTimeout;
-};
+        while (pendingPacket) {
+            if (pendingPacket.callback) {
+                pendingPacket.callback(Exception.create(errorCode));
+            }
 
-ConnectionManagerImport.prototype.connect = function () {
-    var self = this;
+            pendingPacket = this.pendingQueue.shift();
+        }
+    };
 
-    self.setState(STATES.CONNECTING);
+    public getSessionId() {
+        var result = Buffer.alloc(8);
 
-    self.findNextServer(function (server) {
-        self.socket = net.connect(server);
+        this.sessionId.copy(result);
+        return result;
+    };
 
-        self.connectTimeoutHandler = setTimeout(
-            self.onSocketConnectTimeout.bind(self),
-            self.connectTimeout
-        );
+    public getSessionPassword() {
+        var result = Buffer.alloc(16);
 
-        // Disable the Nagle algorithm.
-        self.socket.setNoDelay();
+        this.sessionPassword.copy(result);
+        return result;
+    };
 
-        self.socket.on('connect', self.onSocketConnected.bind(self));
-        self.socket.on('data', self.onSocketData.bind(self));
-        self.socket.on('drain', self.onSocketDrain.bind(self));
-        self.socket.on('close', self.onSocketClosed.bind(self));
-        self.socket.on('error', self.onSocketError.bind(self));
-    });
-};
+    public getSessionTimeout() {
+        return this.sessionTimeout;
+    };
 
-ConnectionManagerImport.prototype.close = function () {
-    var self = this,
-        header = new jute.protocol.RequestHeader(),
-        request;
+    public connect() {
+        var self = this;
 
-    self.setState(STATES.CLOSING);
+        self.setState(STATES.CONNECTING);
 
-    header.type = jute.OP_CODES.CLOSE_SESSION;
-    request = new jute.Request(header, null);
+        self.findNextServer(function (server) {
+            self.socket = net.connect(server);
 
-    self.queue(request);
-};
+            self.connectTimeoutHandler = setTimeout(
+                self.onSocketConnectTimeout.bind(self),
+                self.connectTimeout
+            );
 
-ConnectionManagerImport.prototype.onSocketClosed = function (hasError) {
-    var retry = false,
-        errorCode,
-        pendingPacket;
+            // Disable the Nagle algorithm.
+            self.socket.setNoDelay();
 
-    switch (this.state) {
-    case STATES.CLOSING:
-        errorCode = ExceptionImport.CONNECTION_LOSS;
-        retry = false;
-        break;
-    case STATES.SESSION_EXPIRED:
-        errorCode = ExceptionImport.SESSION_EXPIRED;
-        retry = false;
-        break;
-    case STATES.AUTHENTICATION_FAILED:
-        errorCode = ExceptionImport.AUTH_FAILED;
-        retry = false;
-        break;
-    default:
-        errorCode = ExceptionImport.CONNECTION_LOSS;
-        retry = true;
-    }
+            self.socket.on('connect', self.onSocketConnected.bind(self));
+            self.socket.on('data', self.onSocketData.bind(self));
+            self.socket.on('drain', self.onSocketDrain.bind(self));
+            self.socket.on('close', self.onSocketClosed.bind(self));
+            self.socket.on('error', self.onSocketError.bind(self));
+        });
+    };
 
-    this.cleanupPendingQueue(errorCode);
-    this.setState(STATES.DISCONNECTED);
+    public close() {
+        var self = this,
+            header = new jute.protocol.RequestHeader(),
+            request;
 
-    if (retry) {
-        this.connect();
-    } else {
-        this.setState(STATES.CLOSED);
-    }
-};
+        self.setState(STATES.CLOSING);
 
-ConnectionManagerImport.prototype.onSocketError = function (error) {
-    if (this.connectTimeoutHandler) {
-        clearTimeout(this.connectTimeoutHandler);
-    }
+        header.type = jute.OP_CODES.CLOSE_SESSION;
+        request = new jute.Request(header, null);
 
-    // After socket error, the socket closed event will be triggered,
-    // we will retry connect in that listener function.
-};
+        self.queue(request);
+    };
 
-ConnectionManagerImport.prototype.onSocketConnectTimeout = function () {
-    // Destroy the current socket so the socket closed event
-    // will be trigger.
-    this.socket.destroy();
-};
+    public onSocketClosed(hasError) {
+        var retry = false,
+            errorCode,
+            pendingPacket;
 
-ConnectionManagerImport.prototype.onSocketConnected = function () {
-    var connectRequest,
-        authRequest,
-        setWatchesRequest,
-        header,
-        payload;
+        switch (this.state) {
+        case STATES.CLOSING:
+            errorCode = Exception.CONNECTION_LOSS;
+            retry = false;
+            break;
+        case STATES.SESSION_EXPIRED:
+            errorCode = Exception.SESSION_EXPIRED;
+            retry = false;
+            break;
+        case STATES.AUTHENTICATION_FAILED:
+            errorCode = Exception.AUTH_FAILED;
+            retry = false;
+            break;
+        default:
+            errorCode = Exception.CONNECTION_LOSS;
+            retry = true;
+        }
 
-    if (this.connectTimeoutHandler) {
-        clearTimeout(this.connectTimeoutHandler);
-    }
+        this.cleanupPendingQueue(errorCode);
+        this.setState(STATES.DISCONNECTED);
 
-    connectRequest = new jute.Request(null, new jute.protocol.ConnectRequest(
-        jute.PROTOCOL_VERSION,
-        this.zxid,
-        this.sessionTimeout,
-        this.sessionId,
-        this.sessionPassword
-    ));
+        if (retry) {
+            this.connect();
+        } else {
+            this.setState(STATES.CLOSED);
+        }
+    };
 
-    // XXX No read only support yet.
-    this.socket.write(connectRequest.toBuffer());
+    public onSocketError(error) {
+        if (this.connectTimeoutHandler) {
+            clearTimeout(this.connectTimeoutHandler);
+        }
 
-    // Set auth info
-    if (this.credentials.length > 0) {
-        this.credentials.forEach(function (credential) {
+        // After socket error, the socket closed event will be triggered,
+        // we will retry connect in that listener function.
+    };
+
+    public onSocketConnectTimeout() {
+        // Destroy the current socket so the socket closed event
+        // will be trigger.
+        this.socket.destroy();
+    };
+
+    public onSocketConnected() {
+        var connectRequest,
+            authRequest,
+            setWatchesRequest,
+            header,
+            payload;
+
+        if (this.connectTimeoutHandler) {
+            clearTimeout(this.connectTimeoutHandler);
+        }
+
+        connectRequest = new jute.Request(null, new jute.protocol.ConnectRequest(
+            jute.PROTOCOL_VERSION,
+            this.zxid,
+            this.sessionTimeout,
+            this.sessionId,
+            this.sessionPassword
+        ));
+
+        // XXX No read only support yet.
+        this.socket.write(connectRequest.toBuffer());
+
+        // Set auth info
+        if (this.credentials.length > 0) {
+            this.credentials.forEach(credential => {
+                header = new jute.protocol.RequestHeader();
+                payload = new jute.protocol.AuthPacket();
+
+                header.xid = jute.XID_AUTHENTICATION;
+                header.type = jute.OP_CODES.AUTH;
+
+                payload.type = 0;
+                payload.scheme = credential.scheme;
+                payload.auth = credential.auth;
+
+                authRequest = new jute.Request(header, payload);
+                this.queue(authRequest);
+
+            });
+        }
+
+        // Reset the watchers if we have any.
+        if (!this.watcherManager.isEmpty()) {
+            header = new jute.protocol.RequestHeader();
+            payload = new jute.protocol.SetWatches();
+
+            header.type = jute.OP_CODES.SET_WATCHES;
+            header.xid = jute.XID_SET_WATCHES;
+
+            payload.setChrootPath(this.chrootPath);
+            payload.relativeZxid = this.zxid;
+            payload.dataWatches = this.watcherManager.getDataWatcherPaths();
+            payload.existWatches = this.watcherManager.getExistenceWatcherPaths();
+            payload.childWatches = this.watcherManager.getChildWatcherPaths();
+
+            setWatchesRequest = new jute.Request(header, payload);
+            this.queue(setWatchesRequest);
+        }
+    };
+
+    public onSocketTimeout() {
+        var header,
+            request;
+
+        if (this.socket &&
+                (this.state === STATES.CONNECTED ||
+                this.state === STATES.CONNECTED_READ_ONLY)) {
+            header = new jute.protocol.RequestHeader(
+                jute.XID_PING,
+                jute.OP_CODES.PING
+            );
+
+            request = new jute.Request(header, null);
+            this.queue(request);
+
+            // Re-register the timeout handler since it only fired once.
+            this.socket.setTimeout(
+                this.pingTimeout,
+                this.onSocketTimeout.bind(this)
+            );
+        }
+    };
+
+    /* eslint-disable complexity,max-depth */
+    public onSocketData(buffer) {
+        var self = this,
+            offset = 0,
+            size = 0,
+            connectResponse,
+            pendingPacket,
+            responseHeader,
+            responsePayload,
+            response,
+            event;
+
+        // Combine the pending buffer with the new buffer.
+        if (self.pendingBuffer) {
+            buffer = Buffer.concat(
+                [self.pendingBuffer, buffer],
+                self.pendingBuffer.length + buffer.length
+            );
+        }
+
+        // We need at least 4 bytes
+        if (buffer.length < 4) {
+            self.pendingBuffer = buffer;
+            return;
+        }
+
+        size = buffer.readInt32BE(offset);
+        offset += 4;
+
+        if (buffer.length < size + 4) {
+            // More data are coming.
+            self.pendingBuffer = buffer;
+            return;
+        }
+
+        if (buffer.length === size + 4) {
+            // The size is perfect.
+            self.pendingBuffer = null;
+        } else {
+            // We have extra bytes, splice them out as pending buffer.
+            self.pendingBuffer = buffer.slice(size + 4);
+            buffer = buffer.slice(0, size + 4);
+        }
+
+        if (self.state === STATES.CONNECTING) {
+            // Handle connect response.
+            connectResponse = new jute.protocol.ConnectResponse();
+            offset += connectResponse.deserialize(buffer, offset);
+
+
+            if (connectResponse.timeOut <= 0) {
+                self.setState(STATES.SESSION_EXPIRED);
+
+            } else {
+                // Reset the server connection attempts since we connected now.
+                self.serverAttempts = 0;
+
+                self.sessionId = connectResponse.sessionId;
+                self.sessionPassword = connectResponse.passwd;
+                self.updateTimeout(connectResponse.timeOut);
+
+                self.setState(STATES.CONNECTED);
+
+                // Check if we have anything to send out just in case.
+                self.onPacketQueueReadable();
+
+                self.socket.setTimeout(
+                    self.pingTimeout,
+                    self.onSocketTimeout.bind(self)
+                );
+
+            }
+        } else {
+            // Handle  all other repsonses.
+            responseHeader = new jute.protocol.ReplyHeader();
+            offset += responseHeader.deserialize(buffer, offset);
+
+            // TODO BETTTER LOGGING
+            switch (responseHeader.xid) {
+            case jute.XID_PING:
+                break;
+            case jute.XID_AUTHENTICATION:
+                if (responseHeader.err === Exception.AUTH_FAILED) {
+                    self.setState(STATES.AUTHENTICATION_FAILED);
+                }
+                break;
+            case jute.XID_NOTIFICATION:
+                event = new jute.protocol.WatcherEvent();
+
+                if (self.chrootPath) {
+                    event.setChrootPath(self.chrootPath);
+                }
+
+                offset += event.deserialize(buffer, offset);
+                self.watcherManager.emit(event);
+                break;
+            default:
+                pendingPacket = self.pendingQueue.shift();
+
+                if (!pendingPacket) {
+                    // TODO, better error handling and logging need to be done.
+                    // Need to clean up and do a reconnect.
+                    // throw new Error(
+                    //    'Nothing in pending queue but got data from server.'
+                    // );
+                    self.socket.destroy(); // this will trigger reconnect
+                    return;
+                }
+
+                if (pendingPacket.request.header.xid !== responseHeader.xid) {
+                    // TODO, better error handling/logging need to bee done here.
+                    // Need to clean up and do a reconnect.
+                    // throw new Error(
+                    //     'Xid out of order. Got xid: ' +
+                    //      responseHeader.xid + ' with error code: ' +
+                    //      responseHeader.err + ', expected xid: ' +
+                    //      pendingPacket.request.header.xid + '.'
+                    // );
+                    self.socket.destroy(); // this will trigger reconnect
+                    return;
+                }
+
+                if (responseHeader.zxid) {
+                    // TODO, In Java implementation, the condition is to
+                    // check whether the long zxid is greater than 0, here
+                    // use buffer so we simplify.
+                    // Need to figure out side effect.
+                    self.zxid = responseHeader.zxid;
+                }
+
+                if (responseHeader.err === 0) {
+                    switch (pendingPacket.request.header.type) {
+                    case jute.OP_CODES.CREATE:
+                        responsePayload = new jute.protocol.CreateResponse();
+                        break;
+                    case jute.OP_CODES.DELETE:
+                        responsePayload = null;
+                        break;
+                    case jute.OP_CODES.GET_CHILDREN2:
+                        responsePayload = new jute.protocol.GetChildren2Response();
+                        break;
+                    case jute.OP_CODES.EXISTS:
+                        responsePayload = new jute.protocol.ExistsResponse();
+                        break;
+                    case jute.OP_CODES.SET_DATA:
+                        responsePayload = new jute.protocol.SetDataResponse();
+                        break;
+                    case jute.OP_CODES.GET_DATA:
+                        responsePayload = new jute.protocol.GetDataResponse();
+                        break;
+                    case jute.OP_CODES.SET_ACL:
+                        responsePayload = new jute.protocol.SetACLResponse();
+                        break;
+                    case jute.OP_CODES.GET_ACL:
+                        responsePayload = new jute.protocol.GetACLResponse();
+                        break;
+                    case jute.OP_CODES.SET_WATCHES:
+                        responsePayload = null;
+                        break;
+                    case jute.OP_CODES.CLOSE_SESSION:
+                        responsePayload = null;
+                        break;
+                    case jute.OP_CODES.MULTI:
+                        responsePayload = new jute.TransactionResponse();
+                        break;
+                    default:
+                        // throw new Error('Unknown request OP_CODE: ' +
+                        //     pendingPacket.request.header.type);
+                        self.socket.destroy(); // this will trigger reconnect
+                        return;
+                    }
+
+                    if (responsePayload) {
+                        if (self.chrootPath) {
+                            responsePayload.setChrootPath(self.chrootPath);
+                        }
+
+                        offset += responsePayload.deserialize(buffer, offset);
+                    }
+
+                    if (pendingPacket.callback) {
+                        pendingPacket.callback(
+                            null,
+                            new jute.Response(responseHeader, responsePayload)
+                        );
+                    }
+                } else if (pendingPacket.callback) {
+                    pendingPacket.callback(
+                        Exception.create(responseHeader.err),
+                        new jute.Response(responseHeader, null)
+                    );
+                }
+            }
+        }
+
+        // We have more data to process, need to recursively process it.
+        if (self.pendingBuffer) {
+            self.onSocketData(Buffer.alloc(0));
+        }
+    };
+
+    /* eslint-enable complexity,max-depth */
+
+    public onSocketDrain() {
+        // Trigger write on socket.
+        this.onPacketQueueReadable();
+    };
+
+    public onPacketQueueReadable() {
+        var packet,
+            header;
+
+        switch (this.state) {
+        case STATES.CONNECTED:
+        case STATES.CONNECTED_READ_ONLY:
+        case STATES.CLOSING:
+            // Continue
+            break;
+        case STATES.DISCONNECTED:
+        case STATES.CONNECTING:
+        case STATES.CLOSED:
+        case STATES.SESSION_EXPIRED:
+        case STATES.AUTHENTICATION_FAILED:
+            // Skip since we can not send traffic out
+            return;
+        default:
+            throw new Error('Unknown state: ' + this.state);
+        }
+
+        while ((packet = this.packetQueue.shift()) !== undefined) {
+            header = packet.request.header;
+            if (header !== null &&
+                    header.type !== jute.OP_CODES.PING &&
+                    header.type !== jute.OP_CODES.AUTH) {
+
+                header.xid = this.xid;
+                this.xid += 1;
+
+                // Only put requests that are not connect, ping and auth into
+                // the pending queue.
+                this.pendingQueue.push(packet);
+            }
+
+            if (!this.socket.write(packet.request.toBuffer())) {
+                // Back pressure is handled here, when the socket emit
+                // drain event, this method will be invoked again.
+                break;
+            }
+
+            if (header.type === jute.OP_CODES.CLOSE_SESSION) {
+                // The close session should be the final packet sent to the
+                // server.
+                break;
+            }
+        }
+    };
+
+    public addAuthInfo(scheme, auth) {
+        if (!scheme || typeof scheme !== 'string') {
+            throw new Error('scheme must be a non-empty string.');
+        }
+
+        if (!Buffer.isBuffer(auth)) {
+            throw new Error('auth must be a valid instance of Buffer');
+        }
+
+        var header,
+            payload,
+            request;
+
+        this.credentials.push({
+            scheme : scheme,
+            auth : auth
+        });
+
+        switch (this.state) {
+        case STATES.CONNECTED:
+        case STATES.CONNECTED_READ_ONLY:
+            // Only queue the auth request when connected.
             header = new jute.protocol.RequestHeader();
             payload = new jute.protocol.AuthPacket();
 
@@ -328,408 +688,70 @@ ConnectionManagerImport.prototype.onSocketConnected = function () {
             header.type = jute.OP_CODES.AUTH;
 
             payload.type = 0;
-            payload.scheme = credential.scheme;
-            payload.auth = credential.auth;
+            payload.scheme = scheme;
+            payload.auth = auth;
 
-            authRequest = new jute.Request(header, payload);
-            this.queue(authRequest);
-
-        }, this);
-    }
-
-    // Reset the watchers if we have any.
-    if (!this.watcherManager.isEmpty()) {
-        header = new jute.protocol.RequestHeader();
-        payload = new jute.protocol.SetWatches();
-
-        header.type = jute.OP_CODES.SET_WATCHES;
-        header.xid = jute.XID_SET_WATCHES;
-
-        payload.setChrootPath(this.chrootPath);
-        payload.relativeZxid = this.zxid;
-        payload.dataWatches = this.watcherManager.getDataWatcherPaths();
-        payload.existWatches = this.watcherManager.getExistenceWatcherPaths();
-        payload.childWatches = this.watcherManager.getChildWatcherPaths();
-
-        setWatchesRequest = new jute.Request(header, payload);
-        this.queue(setWatchesRequest);
-    }
-};
-
-ConnectionManagerImport.prototype.onSocketTimeout = function () {
-    var header,
-        request;
-
-    if (this.socket &&
-            (this.state === STATES.CONNECTED ||
-             this.state === STATES.CONNECTED_READ_ONLY)) {
-        header = new jute.protocol.RequestHeader(
-            jute.XID_PING,
-            jute.OP_CODES.PING
-        );
-
-        request = new jute.Request(header, null);
-        this.queue(request);
-
-        // Re-register the timeout handler since it only fired once.
-        this.socket.setTimeout(
-            this.pingTimeout,
-            this.onSocketTimeout.bind(this)
-        );
-    }
-};
-
-/* eslint-disable complexity,max-depth */
-ConnectionManagerImport.prototype.onSocketData = function (buffer) {
-    var self = this,
-        offset = 0,
-        size = 0,
-        connectResponse,
-        pendingPacket,
-        responseHeader,
-        responsePayload,
-        response,
-        event;
-
-    // Combine the pending buffer with the new buffer.
-    if (self.pendingBuffer) {
-        buffer = Buffer.concat(
-            [self.pendingBuffer, buffer],
-            self.pendingBuffer.length + buffer.length
-        );
-    }
-
-    // We need at least 4 bytes
-    if (buffer.length < 4) {
-        self.pendingBuffer = buffer;
-        return;
-    }
-
-    size = buffer.readInt32BE(offset);
-    offset += 4;
-
-    if (buffer.length < size + 4) {
-        // More data are coming.
-        self.pendingBuffer = buffer;
-        return;
-    }
-
-    if (buffer.length === size + 4) {
-        // The size is perfect.
-        self.pendingBuffer = null;
-    } else {
-        // We have extra bytes, splice them out as pending buffer.
-        self.pendingBuffer = buffer.slice(size + 4);
-        buffer = buffer.slice(0, size + 4);
-    }
-
-    if (self.state === STATES.CONNECTING) {
-        // Handle connect response.
-        connectResponse = new jute.protocol.ConnectResponse();
-        offset += connectResponse.deserialize(buffer, offset);
-
-
-        if (connectResponse.timeOut <= 0) {
-            self.setState(STATES.SESSION_EXPIRED);
-
-        } else {
-            // Reset the server connection attempts since we connected now.
-            self.serverAttempts = 0;
-
-            self.sessionId = connectResponse.sessionId;
-            self.sessionPassword = connectResponse.passwd;
-            self.updateTimeout(connectResponse.timeOut);
-
-            self.setState(STATES.CONNECTED);
-
-            // Check if we have anything to send out just in case.
-            self.onPacketQueueReadable();
-
-            self.socket.setTimeout(
-                self.pingTimeout,
-                self.onSocketTimeout.bind(self)
-            );
-
-        }
-    } else {
-        // Handle  all other repsonses.
-        responseHeader = new jute.protocol.ReplyHeader();
-        offset += responseHeader.deserialize(buffer, offset);
-
-        // TODO BETTTER LOGGING
-        switch (responseHeader.xid) {
-        case jute.XID_PING:
+            this.queue(new jute.Request(header, payload));
             break;
-        case jute.XID_AUTHENTICATION:
-            if (responseHeader.err === ExceptionImport.AUTH_FAILED) {
-                self.setState(STATES.AUTHENTICATION_FAILED);
-            }
-            break;
-        case jute.XID_NOTIFICATION:
-            event = new jute.protocol.WatcherEvent();
-
-            if (self.chrootPath) {
-                event.setChrootPath(self.chrootPath);
-            }
-
-            offset += event.deserialize(buffer, offset);
-            self.watcherManager.emit(event);
-            break;
+        case STATES.DISCONNECTED:
+        case STATES.CONNECTING:
+        case STATES.CLOSING:
+        case STATES.CLOSED:
+        case STATES.SESSION_EXPIRED:
+        case STATES.AUTHENTICATION_FAILED:
+            // Skip when we are not in a live state.
+            return;
         default:
-            pendingPacket = self.pendingQueue.shift();
-
-            if (!pendingPacket) {
-                // TODO, better error handling and logging need to be done.
-                // Need to clean up and do a reconnect.
-                // throw new Error(
-                //    'Nothing in pending queue but got data from server.'
-                // );
-                self.socket.destroy(); // this will trigger reconnect
-                return;
-            }
-
-            if (pendingPacket.request.header.xid !== responseHeader.xid) {
-                // TODO, better error handling/logging need to bee done here.
-                // Need to clean up and do a reconnect.
-                // throw new Error(
-                //     'Xid out of order. Got xid: ' +
-                //      responseHeader.xid + ' with error code: ' +
-                //      responseHeader.err + ', expected xid: ' +
-                //      pendingPacket.request.header.xid + '.'
-                // );
-                self.socket.destroy(); // this will trigger reconnect
-                return;
-            }
-
-            if (responseHeader.zxid) {
-                // TODO, In Java implementation, the condition is to
-                // check whether the long zxid is greater than 0, here
-                // use buffer so we simplify.
-                // Need to figure out side effect.
-                self.zxid = responseHeader.zxid;
-            }
-
-            if (responseHeader.err === 0) {
-                switch (pendingPacket.request.header.type) {
-                case jute.OP_CODES.CREATE:
-                    responsePayload = new jute.protocol.CreateResponse();
-                    break;
-                case jute.OP_CODES.DELETE:
-                    responsePayload = null;
-                    break;
-                case jute.OP_CODES.GET_CHILDREN2:
-                    responsePayload = new jute.protocol.GetChildren2Response();
-                    break;
-                case jute.OP_CODES.EXISTS:
-                    responsePayload = new jute.protocol.ExistsResponse();
-                    break;
-                case jute.OP_CODES.SET_DATA:
-                    responsePayload = new jute.protocol.SetDataResponse();
-                    break;
-                case jute.OP_CODES.GET_DATA:
-                    responsePayload = new jute.protocol.GetDataResponse();
-                    break;
-                case jute.OP_CODES.SET_ACL:
-                    responsePayload = new jute.protocol.SetACLResponse();
-                    break;
-                case jute.OP_CODES.GET_ACL:
-                    responsePayload = new jute.protocol.GetACLResponse();
-                    break;
-                case jute.OP_CODES.SET_WATCHES:
-                    responsePayload = null;
-                    break;
-                case jute.OP_CODES.CLOSE_SESSION:
-                    responsePayload = null;
-                    break;
-                case jute.OP_CODES.MULTI:
-                    responsePayload = new jute.TransactionResponse();
-                    break;
-                default:
-                    // throw new Error('Unknown request OP_CODE: ' +
-                    //     pendingPacket.request.header.type);
-                    self.socket.destroy(); // this will trigger reconnect
-                    return;
-                }
-
-                if (responsePayload) {
-                    if (self.chrootPath) {
-                        responsePayload.setChrootPath(self.chrootPath);
-                    }
-
-                    offset += responsePayload.deserialize(buffer, offset);
-                }
-
-                if (pendingPacket.callback) {
-                    pendingPacket.callback(
-                        null,
-                        new jute.Response(responseHeader, responsePayload)
-                    );
-                }
-            } else if (pendingPacket.callback) {
-                pendingPacket.callback(
-                    ExceptionImport.create(responseHeader.err),
-                    new jute.Response(responseHeader, null)
-                );
-            }
+            throw new Error('Unknown state: ' + this.state);
         }
-    }
+    };
 
-    // We have more data to process, need to recursively process it.
-    if (self.pendingBuffer) {
-        self.onSocketData(Buffer.alloc(0));
-    }
-};
-
-/* eslint-enable complexity,max-depth */
-
-ConnectionManagerImport.prototype.onSocketDrain = function () {
-    // Trigger write on socket.
-    this.onPacketQueueReadable();
-};
-
-ConnectionManagerImport.prototype.onPacketQueueReadable = function () {
-    var packet,
-        header;
-
-    switch (this.state) {
-    case STATES.CONNECTED:
-    case STATES.CONNECTED_READ_ONLY:
-    case STATES.CLOSING:
-        // Continue
-        break;
-    case STATES.DISCONNECTED:
-    case STATES.CONNECTING:
-    case STATES.CLOSED:
-    case STATES.SESSION_EXPIRED:
-    case STATES.AUTHENTICATION_FAILED:
-        // Skip since we can not send traffic out
-        return;
-    default:
-        throw new Error('Unknown state: ' + this.state);
-    }
-
-    while ((packet = this.packetQueue.shift()) !== undefined) {
-        header = packet.request.header;
-        if (header !== null &&
-                header.type !== jute.OP_CODES.PING &&
-                header.type !== jute.OP_CODES.AUTH) {
-
-            header.xid = this.xid;
-            this.xid += 1;
-
-            // Only put requests that are not connect, ping and auth into
-            // the pending queue.
-            this.pendingQueue.push(packet);
+    public queue(request, callback?: Function) {
+        if (typeof request !== 'object') {
+            throw new Error('request must be a valid instance of jute.Request.');
         }
 
-        if (!this.socket.write(packet.request.toBuffer())) {
-            // Back pressure is handled here, when the socket emit
-            // drain event, this method will be invoked again.
-            break;
+        if (this.chrootPath && request.payload) {
+            request.payload.setChrootPath(this.chrootPath);
         }
 
-        if (header.type === jute.OP_CODES.CLOSE_SESSION) {
-            // The close session should be the final packet sent to the
-            // server.
-            break;
-        }
-    }
-};
 
-ConnectionManagerImport.prototype.addAuthInfo = function (scheme, auth) {
-    if (!scheme || typeof scheme !== 'string') {
-        throw new Error('scheme must be a non-empty string.');
-    }
+        callback = callback || function () {};
 
-    if (!Buffer.isBuffer(auth)) {
-        throw new Error('auth must be a valid instance of Buffer');
-    }
-
-    var header,
-        payload,
-        request;
-
-    this.credentials.push({
-        scheme : scheme,
-        auth : auth
-    });
-
-    switch (this.state) {
-    case STATES.CONNECTED:
-    case STATES.CONNECTED_READ_ONLY:
-        // Only queue the auth request when connected.
-        header = new jute.protocol.RequestHeader();
-        payload = new jute.protocol.AuthPacket();
-
-        header.xid = jute.XID_AUTHENTICATION;
-        header.type = jute.OP_CODES.AUTH;
-
-        payload.type = 0;
-        payload.scheme = scheme;
-        payload.auth = auth;
-
-        this.queue(new jute.Request(header, payload));
-        break;
-    case STATES.DISCONNECTED:
-    case STATES.CONNECTING:
-    case STATES.CLOSING:
-    case STATES.CLOSED:
-    case STATES.SESSION_EXPIRED:
-    case STATES.AUTHENTICATION_FAILED:
-        // Skip when we are not in a live state.
-        return;
-    default:
-        throw new Error('Unknown state: ' + this.state);
-    }
-};
-
-ConnectionManagerImport.prototype.queue = function (request, callback) {
-    if (typeof request !== 'object') {
-        throw new Error('request must be a valid instance of jute.Request.');
-    }
-
-    if (this.chrootPath && request.payload) {
-        request.payload.setChrootPath(this.chrootPath);
-    }
-
-
-    callback = callback || function () {};
-
-    switch (this.state) {
-    case STATES.DISCONNECTED:
-    case STATES.CONNECTING:
-    case STATES.CONNECTED:
-    case STATES.CONNECTED_READ_ONLY:
-        // queue the packet
-        this.packetQueue.push({
-            request : request,
-            callback : callback
-        });
-        break;
-    case STATES.CLOSING:
-        if (request.header &&
-                request.header.type === jute.OP_CODES.CLOSE_SESSION) {
+        switch (this.state) {
+        case STATES.DISCONNECTED:
+        case STATES.CONNECTING:
+        case STATES.CONNECTED:
+        case STATES.CONNECTED_READ_ONLY:
+            // queue the packet
             this.packetQueue.push({
                 request : request,
                 callback : callback
             });
-        } else {
-            callback(ExceptionImport.create(ExceptionImport.CONNECTION_LOSS));
+            break;
+        case STATES.CLOSING:
+            if (request.header &&
+                    request.header.type === jute.OP_CODES.CLOSE_SESSION) {
+                this.packetQueue.push({
+                    request : request,
+                    callback : callback
+                });
+            } else {
+                callback(Exception.create(Exception.CONNECTION_LOSS));
+            }
+            break;
+        case STATES.CLOSED:
+            callback(Exception.create(Exception.CONNECTION_LOSS));
+            return;
+        case STATES.SESSION_EXPIRED:
+            callback(Exception.create(Exception.SESSION_EXPIRED));
+            return;
+        case STATES.AUTHENTICATION_FAILED:
+            callback(Exception.create(Exception.AUTH_FAILED));
+            return;
+        default:
+            throw new Error('Unknown state: ' + this.state);
         }
-        break;
-    case STATES.CLOSED:
-        callback(ExceptionImport.create(ExceptionImport.CONNECTION_LOSS));
-        return;
-    case STATES.SESSION_EXPIRED:
-        callback(ExceptionImport.create(ExceptionImport.SESSION_EXPIRED));
-        return;
-    case STATES.AUTHENTICATION_FAILED:
-        callback(ExceptionImport.create(ExceptionImport.AUTH_FAILED));
-        return;
-    default:
-        throw new Error('Unknown state: ' + this.state);
-    }
-};
+    };
+}
 
-module.exports = ConnectionManagerImport;
-module.exports.STATES = STATES;

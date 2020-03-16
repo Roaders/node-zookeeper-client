@@ -28,69 +28,75 @@ var DEFAULT_PORT = 2181; // Default Zookeeper client port.
  * @constructor
  * @param connectionString {String} ZooKeeper server ensemble string.
  */
-function ConnectionStringParser(connectionString) {
-    assert(
-        connectionString && typeof connectionString === 'string',
-        'connectionString must be a non-empty string.'
-    );
+export class ConnectionStringParser{
 
-    this.connectionString = connectionString;
+    connectionString: string;
+    chrootPath: string;
+    servers: any;
 
-    // Handle chroot
-    var index = connectionString.indexOf('/'),
-        hostList = [],
-        servers = [];
-
-    if (index !== -1 && index !== (connectionString.length - 1)) {
-        this.chrootPath = connectionString.substring(index);
-        Path.validate(this.chrootPath);
-    } else {
-        this.chrootPath = undefined;
-    }
-
-    if (index !== -1) {
-        hostList = connectionString.substring(0, index).split(',');
-    } else {
-        hostList = connectionString.split(',');
-    }
-
-    hostList.filter(function (item) {
-        // Filter out empty string.
-        return item;
-    }).forEach(function (item) {
-        var parts = item.split(':');
-
-        servers.push({
-            host : parts[0],
-            port : parts[1] || DEFAULT_PORT
+    constructor(connectionString: string) {
+        assert(
+            connectionString && typeof connectionString === 'string',
+            'connectionString must be a non-empty string.'
+        );
+    
+        this.connectionString = connectionString;
+    
+        // Handle chroot
+        var index = connectionString.indexOf('/'),
+            hostList = [],
+            servers = [];
+    
+        if (index !== -1 && index !== (connectionString.length - 1)) {
+            this.chrootPath = connectionString.substring(index);
+            Path.validate(this.chrootPath);
+        } else {
+            this.chrootPath = undefined;
+        }
+    
+        if (index !== -1) {
+            hostList = connectionString.substring(0, index).split(',');
+        } else {
+            hostList = connectionString.split(',');
+        }
+    
+        hostList.filter(function (item) {
+            // Filter out empty string.
+            return item;
+        }).forEach(function (item) {
+            var parts = item.split(':');
+    
+            servers.push({
+                host : parts[0],
+                port : parts[1] || DEFAULT_PORT
+            });
         });
-    });
+    
+        assert(
+            servers.length > 0,
+            'connectionString must contain at least one server.'
+        );
+    
+        // Randomize the list.
+        this.servers = u.shuffle(servers);
+    }
 
-    assert(
-        servers.length > 0,
-        'connectionString must contain at least one server.'
-    );
+    /**
+     * Return the connection string of this host provider.
+     *
+     * @method getConnectionString
+     * @return The connection string.
+     */
+    private getConnectionString() {
+        return this.connectionString;
+    };
 
-    // Randomize the list.
-    this.servers = u.shuffle(servers);
+    private getChrootPath() {
+        return this.chrootPath;
+    };
+
+    private getServers() {
+        return this.servers.slice(0);
+    };
 }
 
-/**
- * Return the connection string of this host provider.
- *
- * @method getConnectionString
- * @return The connection string.
- */
-ConnectionStringParserImport.prototype.getConnectionString = function () {
-    return this.connectionString;
-};
-
-ConnectionStringParserImport.prototype.getChrootPath = function () {
-    return this.chrootPath;
-};
-
-ConnectionStringParserImport.prototype.getServers = function () {
-    return this.servers.slice(0);
-};
-
-module.exports = ConnectionStringParserImport;

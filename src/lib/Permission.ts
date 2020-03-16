@@ -5,7 +5,7 @@
  * for terms.
  */
 
-var PERMISSIONS = {
+export default {
     READ : 1,
     WRITE : 2,
     CREATE : 4,
@@ -14,5 +14,4 @@ var PERMISSIONS = {
     ALL : 31
 };
 
-module.exports = PERMISSIONS;
 

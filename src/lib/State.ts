@@ -18,6 +18,14 @@ var assert = require('assert');
  * @param code {Number} The code of the state.
  */
 export class State {
+
+    static DISCONNECTED = new State('DISCONNECTED', 0);
+    static SYNC_CONNECTED = new State('SYNC_CONNECTED', 3);
+    static AUTH_FAILED = new State('AUTH_FAILED', 4);
+    static CONNECTED_READ_ONLY = new State('CONNECTED_READ_ONLY', 5);
+    static SASL_AUTHENTICATED = new State('SASL_AUTHENTICATED', 6);
+    static EXPIRED = new State('EXPIRED', -122);
+
     constructor(private readonly name: string, private readonly code: number) {
 
         assert(
@@ -32,7 +40,7 @@ export class State {
      * @method getName
      * @return {String} The name o fhte state.
      */
-    public getName = function () {
+    private getName  () {
         return this.name;
     };
 
@@ -41,7 +49,7 @@ export class State {
      * @method getCode
      * @return {Number} The code of the state.
      */
-    public getCode = function () {
+    private getCode  () {
         return this.code;
     };
 
@@ -51,18 +59,9 @@ export class State {
      * @method toString
      * @return {String} The string representation of the state.
      */
-    public toString = function () {
+    private toString  () {
         return this.name + '[' + this.code + ']';
     };
 }
 
-// Exported state constants
-export const STATES = {
-    DISCONNECTED: new State('DISCONNECTED', 0),
-    SYNC_CONNECTED: new State('SYNC_CONNECTED', 3),
-    AUTH_FAILED: new State('AUTH_FAILED', 4),
-    CONNECTED_READ_ONLY: new State('CONNECTED_READ_ONLY', 5),
-    SASL_AUTHENTICATED: new State('SASL_AUTHENTICATED', 6),
-    EXPIRED: new State('EXPIRED', -122)
-};
 

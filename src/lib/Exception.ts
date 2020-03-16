@@ -8,27 +8,7 @@
 var assert = require('assert');
 
 // All error codes.
-var CODES = {
-    OK : 0,
-    SYSTEM_ERROR : -1,
-    RUNTIME_INCONSISTENCY : -2,
-    DATA_INCONSISTENCY : -3,
-    CONNECTION_LOSS : -4,
-    MARSHALLING_ERROR : -5,
-    UNIMPLEMENTED : -6,
-    OPERATION_TIMEOUT : -7,
-    BAD_ARGUMENTS : -8,
-    API_ERROR : -100,
-    NO_NODE : -101,
-    NO_AUTH : -102,
-    BAD_VERSION : -103,
-    NO_CHILDREN_FOR_EPHEMERALS : -108,
-    NODE_EXISTS : -110,
-    NOT_EMPTY : -111,
-    SESSION_EXPIRED : -112,
-    INVALID_CALLBACK : -113,
-    INVALID_ACL : -114,
-    AUTH_FAILED : -115
+export const EXCEPTION_CODES = {
 };
 
 /**
@@ -41,8 +21,8 @@ var CODES = {
 function validateCode(code) {
     assert(typeof code === 'number', 'code must be a number.');
 
-    var defined = Object.keys(CODES).some(function (name) {
-        return CODES[name] === code;
+    var defined = Object.keys(EXCEPTION_CODES).some(function (name) {
+        return EXCEPTION_CODES[name] === code;
     });
 
     if (!defined) {
@@ -62,6 +42,55 @@ function validateCode(code) {
  * @param ctor {Function} The function to start in stack trace.
  */
 export class Exception extends Error{
+
+
+    static OK = 0;
+    static SYSTEM_ERROR = -1;
+    static RUNTIME_INCONSISTENCY = -2;
+    static DATA_INCONSISTENCY = -3;
+    static CONNECTION_LOSS = -4;
+    static MARSHALLING_ERROR = -5;
+    static UNIMPLEMENTED = -6;
+    static OPERATION_TIMEOUT = -7;
+    static BAD_ARGUMENTS = -8;
+    static API_ERROR = -100;
+    static NO_NODE = -101;
+    static NO_AUTH = -102;
+    static BAD_VERSION = -103;
+    static NO_CHILDREN_FOR_EPHEMERALS = -108;
+    static NODE_EXISTS = -110;
+    static NOT_EMPTY = -111;
+    static SESSION_EXPIRED = -112;
+    static INVALID_CALLBACK = -113;
+    static INVALID_ACL = -114;
+    static AUTH_FAILED = -115;
+
+    /**
+     * The factory method to create an instance of Exception.
+     *
+     * @method create
+     * @param code {Number} Exception code.
+     * @param path {String} Node path of the exception, optional.
+     */
+    static create(code, path?: string) {
+        validateCode(code);
+
+        var name,
+            i = 0,
+            keys = Object.keys(EXCEPTION_CODES);
+
+        while (i < keys.length) {
+            if (EXCEPTION_CODES[keys[i]] === code) {
+                name = keys[i];
+                break;
+            }
+
+            i += 1;
+        }
+
+        return new Exception(code, name, path, Exception.create);
+    }
+
     constructor(private code, name, private path, ctor) {
         super();
         if (!ctor) {
@@ -76,7 +105,7 @@ export class Exception extends Error{
         );
         assert(typeof ctor === 'function', 'ctor must be a function.');
     
-        Error.captureStackTrace(this, ctor || ExceptionImport);
+        Error.captureStackTrace(this, ctor || Exception);
     
         this.message = 'Exception: ' + name + '[' + code + ']';
     
@@ -126,38 +155,3 @@ export class Exception extends Error{
         return this.message;
     };
 }
-
-/**
- * The factory method to create an instance of Exception.
- *
- * @method create
- * @param code {Number} Exception code.
- * @param path {String} Node path of the exception, optional.
- */
-export function create(code, path) {
-    validateCode(code);
-
-    var name,
-        i = 0,
-        keys = Object.keys(CODES);
-
-    while (i < keys.length) {
-        if (CODES[keys[i]] === code) {
-            name = keys[i];
-            break;
-        }
-
-        i += 1;
-    }
-
-    return new ExceptionImport(code, name, path, create);
-}
-
-
-/**
- * Expose all the error codes.
- */
-Object.keys(CODES).forEach(function (key) {
-    module.exports[key] = CODES[key];
-});
-

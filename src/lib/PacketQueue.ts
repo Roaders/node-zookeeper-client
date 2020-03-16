@@ -5,48 +5,45 @@
  * for terms.
  */
 
+import { EventEmitter } from "events";
+
 
 /**
  * The package queue which emits events.
  */
 
-var util = require('util');
-var events = require('events');
 
-function PacketQueue() {
-    events.EventEmitter.call(this);
+export class PacketQueue extends EventEmitter {
 
-    this.queue = [];
+    private queue = [];
+
+    private push (packet) {
+        if (typeof packet !== 'object') {
+            throw new Error('packet must be a valid object.');
+        }
+
+        this.queue.push(packet);
+
+        this.emit('readable');
+    };
+
+
+    private unshift (packet) {
+        if (typeof packet !== 'object') {
+            throw new Error('packet must be a valid object.');
+        }
+
+        this.queue.unshift(packet);
+        this.emit('readable');
+    };
+
+    private shift () {
+        return this.queue.shift();
+    };
 }
 
 
-util.inherits(PacketQueueImport, events.EventEmitter);
 
 
-PacketQueueImport.prototype.push = function (packet) {
-    if (typeof packet !== 'object') {
-        throw new Error('packet must be a valid object.');
-    }
 
-    this.queue.push(packet);
-
-    this.emit('readable');
-};
-
-
-PacketQueueImport.prototype.unshift = function (packet) {
-    if (typeof packet !== 'object') {
-        throw new Error('packet must be a valid object.');
-    }
-
-    this.queue.unshift(packet);
-    this.emit('readable');
-};
-
-PacketQueueImport.prototype.shift = function () {
-    return this.queue.shift();
-};
-
-
-module.exports = PacketQueueImport;
 

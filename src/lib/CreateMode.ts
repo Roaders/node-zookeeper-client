@@ -5,7 +5,7 @@
  * for terms.
  */
 
-var CREATE_MODES = {
+export default {
 
     /**
      * The znode will not be automatically deleted upon client's disconnect.
@@ -30,4 +30,3 @@ var CREATE_MODES = {
     EPHEMERAL_SEQUENTIAL : 3
 };
 
-module.exports = CREATE_MODES;

@@ -58,84 +58,215 @@ var XID_SET_WATCHES = -8;
  * @param specification {Array} The array of record attribute specification.
  * @param args {Array} The constructor array of the Record class.
  */
-function Record(specification, args) {
-    if (!Array.isArray(specification)) {
-        throw new Error('specification must be a valid Array.');
-    }
+class Record{
+    private chrootPath = undefined;
+    private path: string;
 
-    this.specification = specification;
-    this.chrootPath = undefined;
-
-    args = args || [];
-
-    var self = this,
-        match;
-
-    self.specification.forEach(function (attribute, index) {
-        switch (attribute.type) {
-        case 'int':
-            if (typeof args[index] === 'number') {
-                self[attribute.name] = args[index];
-            } else {
-                self[attribute.name] = 0;
-            }
-            break;
-        case 'long':
-            // Long is represented by a buffer of 8 bytes in big endian since
-            // Javascript does not support native 64 integer.
-            self[attribute.name] = Buffer.alloc(8);
-
-            if (Buffer.isBuffer(args[index])) {
-                args[index].copy(self[attribute.name]);
-            } else {
-                self[attribute.name].fill(0);
-            }
-            break;
-        case 'buffer':
-            if (Buffer.isBuffer(args[index])) {
-                self[attribute.name] = Buffer.alloc(args[index].length);
-                args[index].copy(self[attribute.name]);
-            } else {
-                self[attribute.name] = undefined;
-            }
-            break;
-        case 'ustring':
-            if (typeof args[index] === 'string') {
-                self[attribute.name] = args[index];
-            } else {
-                self[attribute.name] = undefined;
-            }
-            break;
-        case 'boolean':
-            if (typeof args[index] === 'boolean') {
-                self[attribute.name] = args[index];
-            } else {
-                self[attribute.name] = false;
-            }
-            break;
-        default:
-            if ((match = /^vector<([\w.]+)>$/.exec(attribute.type)) !== null) {
-                if (Array.isArray(args[index])) {
+    constructor(private specification: Array<any>, args) {
+        if (!Array.isArray(specification)) {
+            throw new Error('specification must be a valid Array.');
+        }
+    
+        args = args || [];
+    
+        var self = this,
+            match;
+    
+        self.specification.forEach(function (attribute, index) {
+            switch (attribute.type) {
+            case 'int':
+                if (typeof args[index] === 'number') {
+                    self[attribute.name] = args[index];
+                } else {
+                    self[attribute.name] = 0;
+                }
+                break;
+            case 'long':
+                // Long is represented by a buffer of 8 bytes in big endian since
+                // Javascript does not support native 64 integer.
+                self[attribute.name] = Buffer.alloc(8);
+    
+                if (Buffer.isBuffer(args[index])) {
+                    args[index].copy(self[attribute.name]);
+                } else {
+                    self[attribute.name].fill(0);
+                }
+                break;
+            case 'buffer':
+                if (Buffer.isBuffer(args[index])) {
+                    self[attribute.name] = Buffer.alloc(args[index].length);
+                    args[index].copy(self[attribute.name]);
+                } else {
+                    self[attribute.name] = undefined;
+                }
+                break;
+            case 'ustring':
+                if (typeof args[index] === 'string') {
                     self[attribute.name] = args[index];
                 } else {
                     self[attribute.name] = undefined;
                 }
-            } else if ((match = /^data\.(\w+)$/.exec(attribute.type)) !== null) {
-                if (args[index] instanceof Record) {
+                break;
+            case 'boolean':
+                if (typeof args[index] === 'boolean') {
                     self[attribute.name] = args[index];
                 } else {
-                    self[attribute.name] = new jute.data[match[1]]();
+                    self[attribute.name] = false;
                 }
-            } else {
-                throw new Error('Unknown type: ' + attribute.type);
+                break;
+            default:
+                if ((match = /^vector<([\w.]+)>$/.exec(attribute.type)) !== null) {
+                    if (Array.isArray(args[index])) {
+                        self[attribute.name] = args[index];
+                    } else {
+                        self[attribute.name] = undefined;
+                    }
+                } else if ((match = /^data\.(\w+)$/.exec(attribute.type)) !== null) {
+                    if (args[index] instanceof Record) {
+                        self[attribute.name] = args[index];
+                    } else {
+                        self[attribute.name] = new jute.data[match[1]]();
+                    }
+                } else {
+                    throw new Error('Unknown type: ' + attribute.type);
+                }
             }
+        });
+    }
+
+    private setChrootPath (path) {
+        this.chrootPath = path;
+    };
+
+    /**
+     * Calculate and return the size of the buffer which is need to serialize this
+     * record.
+     *
+     * @method byteLength
+     * @return {Number} The number of bytes.
+     */
+    private byteLength () {
+        var self = this,
+            size = 0;
+
+        self.specification.forEach(function (attribute) {
+            var value = self[attribute.name];
+
+            // Add the chroot path to calculate the real path.
+            if (attribute.name === 'path') {
+                value = prependChroot(self, value);
+            }
+
+            if ((attribute.name === 'dataWatches' ||
+                attribute.name === 'existWatches' ||
+                attribute.name === 'childWatches') &&
+                    Array.isArray(value)) {
+
+                value = value.map(function (path) {
+                    return prependChroot(self, path);
+                });
+            }
+
+            size += byteLength(attribute.type, value);
+        });
+
+        return size;
+    };
+
+    /**
+     * Serialize the record content to a buffer.
+     *
+     * @method serialize
+     * @param buffer {Buffer} A buffer object.
+     * @param offset {Number} The offset where the write starts.
+     * @return {Number} The number of bytes written.
+     */
+    private serialize(buffer, offset) {
+        if (!Buffer.isBuffer(buffer)) {
+            throw new Error('buffer must an instance of Node.js Buffer class.');
         }
-    });
+
+        if (offset < 0 || offset >= buffer.length) {
+            throw new Error('offset: ' + offset + ' is out of buffer range.');
+        }
+
+        var self = this,
+            size = this.byteLength();
+
+        if (offset + size > buffer.length) {
+            throw new Error('buffer does not have enough space.');
+        }
+
+        self.specification.forEach(function (attribute) {
+            var value = self[attribute.name];
+
+            // Add the chroot path to generate the real path.
+            if (attribute.name === 'path') {
+                value = prependChroot(self, value);
+            }
+
+            if ((attribute.name === 'dataWatches' ||
+                attribute.name === 'existWatches' ||
+                attribute.name === 'childWatches') &&
+                    Array.isArray(value)) {
+
+                value = value.map(function (path) {
+                    return prependChroot(self, path);
+                });
+            }
+
+            offset += serialize(
+                attribute.type,
+                value,
+                buffer,
+                offset
+            );
+        });
+
+        return size;
+    };
+
+    /**
+     * De-serialize the record content from a buffer.
+     *
+     * @method deserialize
+     * @param buffer {Buffer} A buffer object.
+     * @param offset {Number} The offset where the read starts.
+     * @return {Number} The number of bytes read.
+     */
+    private deserialize (buffer, offset) {
+        if (!Buffer.isBuffer(buffer)) {
+            throw new Error('buffer must an instance of Node.js Buffer class.');
+        }
+
+        if (offset < 0 || offset >= buffer.length) {
+            throw new Error('offset: ' + offset + ' is out of buffer range.');
+        }
+
+        var self = this,
+            bytesRead = 0,
+            result;
+
+        self.specification.forEach((attribute) => {
+            result = deserialize(attribute.type, buffer, offset + bytesRead);
+            self[attribute.name] = result.value;
+            bytesRead += result.bytesRead;
+
+            // Remove the chroot part from the real path.
+            if (self.chrootPath && attribute.name === 'path') {
+                if (self.path === self.chrootPath) {
+                    self.path = '/';
+                } else {
+                    self.path = self.path.substring(self.chrootPath.length);
+                }
+            }
+        });
+
+        return bytesRead;
+    };
 }
 
-Record.prototype.setChrootPath = function (path) {
-    this.chrootPath = path;
-};
+
 
 function byteLength(type, value) {
     var size = 0,
@@ -195,41 +326,6 @@ function prependChroot(self, path) {
 
     return self.chrootPath + path;
 }
-
-/**
- * Calculate and return the size of the buffer which is need to serialize this
- * record.
- *
- * @method byteLength
- * @return {Number} The number of bytes.
- */
-Record.prototype.byteLength = function () {
-    var self = this,
-        size = 0;
-
-    self.specification.forEach(function (attribute) {
-        var value = self[attribute.name];
-
-        // Add the chroot path to calculate the real path.
-        if (attribute.name === 'path') {
-            value = prependChroot(self, value);
-        }
-
-        if ((attribute.name === 'dataWatches' ||
-             attribute.name === 'existWatches' ||
-             attribute.name === 'childWatches') &&
-                 Array.isArray(value)) {
-
-            value = value.map(function (path) {
-                return prependChroot(self, path);
-            });
-        }
-
-        size += byteLength(attribute.type, value);
-    });
-
-    return size;
-};
 
 function serialize(type, value, buffer, offset) {
     var bytesWritten = 0,
@@ -304,60 +400,6 @@ function serialize(type, value, buffer, offset) {
 
     return bytesWritten;
 }
-
-
-/**
- * Serialize the record content to a buffer.
- *
- * @method serialize
- * @param buffer {Buffer} A buffer object.
- * @param offset {Number} The offset where the write starts.
- * @return {Number} The number of bytes written.
- */
-Record.prototype.serialize = function (buffer, offset) {
-    if (!Buffer.isBuffer(buffer)) {
-        throw new Error('buffer must an instance of Node.js Buffer class.');
-    }
-
-    if (offset < 0 || offset >= buffer.length) {
-        throw new Error('offset: ' + offset + ' is out of buffer range.');
-    }
-
-    var self = this,
-        size = this.byteLength();
-
-    if (offset + size > buffer.length) {
-        throw new Error('buffer does not have enough space.');
-    }
-
-    self.specification.forEach(function (attribute) {
-        var value = self[attribute.name];
-
-        // Add the chroot path to generate the real path.
-        if (attribute.name === 'path') {
-            value = prependChroot(self, value);
-        }
-
-        if ((attribute.name === 'dataWatches' ||
-             attribute.name === 'existWatches' ||
-             attribute.name === 'childWatches') &&
-                 Array.isArray(value)) {
-
-            value = value.map(function (path) {
-                return prependChroot(self, path);
-            });
-        }
-
-        offset += serialize(
-            attribute.type,
-            value,
-            buffer,
-            offset
-        );
-    });
-
-    return size;
-};
 
 function deserialize(type, buffer, offset) {
     var bytesRead = 0,
@@ -446,46 +488,6 @@ function deserialize(type, buffer, offset) {
     };
 }
 
-/**
- * De-serialize the record content from a buffer.
- *
- * @method deserialize
- * @param buffer {Buffer} A buffer object.
- * @param offset {Number} The offset where the read starts.
- * @return {Number} The number of bytes read.
- */
-Record.prototype.deserialize = function (buffer, offset) {
-    if (!Buffer.isBuffer(buffer)) {
-        throw new Error('buffer must an instance of Node.js Buffer class.');
-    }
-
-    if (offset < 0 || offset >= buffer.length) {
-        throw new Error('offset: ' + offset + ' is out of buffer range.');
-    }
-
-    var self = this,
-        bytesRead = 0,
-        result;
-
-    self.specification.forEach(function (attribute) {
-        result = deserialize(attribute.type, buffer, offset + bytesRead);
-        self[attribute.name] = result.value;
-        bytesRead += result.bytesRead;
-
-        // Remove the chroot part from the real path.
-        if (self.chrootPath && attribute.name === 'path') {
-            if (self.path === self.chrootPath) {
-                self.path = '/';
-            } else {
-                self.path = self.path.substring(self.chrootPath.length);
-            }
-        }
-    });
-
-    return bytesRead;
-};
-
-
 export class TransactionRequest{
 
     private ops: Array<any>;
@@ -498,7 +500,7 @@ export class TransactionRequest{
 
         assert(Array.isArray(ops), 'ops must be a valid array.');
 
-        this.ops.forEach(function (op) {
+        this.ops.forEach(op => {
             var mh = new jute.protocol.MultiHeader(op.type, false, -1),
                 record;
 
@@ -594,14 +596,15 @@ export class TransactionResponse {
             return new TransactionResponse();
         }
     }
+    
     private results = [];
     private chrootPath = undefined;
 
-    public setChrootPath = function (path) {
+    public setChrootPath (path) {
         this.chrootPath = path;
     };
     
-    public deserialize = function (buffer, offset) {
+    public deserialize (buffer, offset) {
         assert(
             Buffer.isBuffer(buffer),
             'buffer must an instance of Node.js Buffer class.'
@@ -747,16 +750,13 @@ export class Response{
  * @method generateClass
  */
 function generateClass(specification, moduleName, className) {
-    var spec = specification[moduleName][className],
-        constructor;
+    var spec = specification[moduleName][className];
 
-    constructor = function () {
-        Record.call(this, spec, Array.prototype.slice.call(arguments, 0));
+    return class extends Record{
+        constructor(){
+            super(spec, Array.prototype.slice.call(arguments, 0))
+        }
     };
-
-    util.inherits(constructor, Record);
-
-    return constructor;
 }
 
 

@@ -9,6 +9,9 @@
 var jute = require('./jute');
 
 export class Id{
+    static ANYONE_ID_UNSAFE = new Id('world', 'anyone');
+    static AUTH_IDS = new Id('auth', '');
+
     constructor(private scheme: string, private id: string) {
         if (!scheme || typeof scheme !== 'string') {
             throw new Error('scheme must be a non-empty string.');
@@ -18,17 +21,18 @@ export class Id{
             throw new Error('id must be a string.');
         }
     }
+
+    public toRecord() {
+        return new jute.data.Id(
+            this.scheme,
+            this.id
+        );
+    };
 }
 
-IdImport.prototype.toRecord = function () {
-    return new jute.data.Id(
-        this.scheme,
-        this.id
-    );
-};
 
-export const ANYONE_ID_UNSAFE = new IdImport('world', 'anyone');
-export const AUTH_IDS = new IdImport('auth', '');
+
+
 
 
 export function fromRecord(record) {
@@ -36,7 +40,7 @@ export function fromRecord(record) {
         throw new Error('record must be an instace of jute.data.Id.');
     }
 
-    return new IdImport(record.scheme, record.id);
+    return new Id(record.scheme, record.id);
 }
 
 
