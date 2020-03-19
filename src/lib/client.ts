@@ -390,7 +390,7 @@ export class Client extends EventEmitter {
             async.eachSeries(children.reverse(), function (nodePath, next) {
                 self.remove(nodePath, version, function (err) {
                     // Skip NO_NODE exception
-                    if (err && err.getCode() === Exception.NO_NODE) {
+                    if (err instanceof Exception && err.getCode() === Exception.NO_NODE) {
                         next(null);
                         return;
                     }
@@ -854,7 +854,7 @@ export class Client extends EventEmitter {
             currentPath = currentPath + '/' + node;
             this.create(currentPath, data, acls, mode, function (error) {
                 // Skip node exist error.
-                if (error && error.getCode() === Exception.NODE_EXISTS) {
+                if (error instanceof Exception && error.getCode() === Exception.NODE_EXISTS) {
                     next(null);
                     return;
                 }
