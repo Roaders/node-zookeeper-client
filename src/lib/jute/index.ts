@@ -134,7 +134,7 @@ class Record{
         });
     }
 
-    private setChrootPath (path) {
+    public setChrootPath (path) {
         this.chrootPath = path;
     };
 
@@ -145,7 +145,7 @@ class Record{
      * @method byteLength
      * @return {Number} The number of bytes.
      */
-    private byteLength () {
+    public byteLength () {
         var self = this,
             size = 0;
 
@@ -181,7 +181,7 @@ class Record{
      * @param offset {Number} The offset where the write starts.
      * @return {Number} The number of bytes written.
      */
-    private serialize(buffer, offset) {
+    public serialize(buffer, offset) {
         if (!Buffer.isBuffer(buffer)) {
             throw new Error('buffer must an instance of Node.js Buffer class.');
         }
@@ -234,7 +234,7 @@ class Record{
      * @param offset {Number} The offset where the read starts.
      * @return {Number} The number of bytes read.
      */
-    private deserialize (buffer, offset) {
+    public deserialize (buffer, offset) {
         if (!Buffer.isBuffer(buffer)) {
             throw new Error('buffer must an instance of Node.js Buffer class.');
         }

@@ -15,7 +15,7 @@ export class ACL{
     static CREATOR_ALL_ACL = [new ACL(Permission.ALL, Id.AUTH_IDS)];
     static READ_ACL_UNSAFE = [new ACL(Permission.READ, Id.ANYONE_ID_UNSAFE)];
 
-    constructor(private permission: number, private id: Id) {
+    constructor(public permission: number, public id: Id) {
         if (typeof permission !== 'number' || permission < 1 || permission > 31) {
             throw new Error('permission must be a valid integer.');
         }

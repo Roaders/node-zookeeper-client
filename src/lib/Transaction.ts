@@ -6,14 +6,14 @@
  */
 
 import { ConnectionManager } from "./ConnectionManager";
+import { ACL } from "./ACL";
+import { Exception } from "./Exception";
+import { CreateMode } from "./CreateMode";
+import { validate } from "./Path";
 
 
 var assert            = require('assert');
 var jute              = require('./jute');
-var Path              = require('./Path.js');
-var ACLImport               = require('./ACL.js');
-var ExceptionImport         = require('./Exception.js');
-var CreateMode        = require('./CreateMode.js');
 
 /**
  * Transaction provides a builder interface that helps building an atomic set
@@ -44,27 +44,10 @@ export class Transaction {
      * @param [mode=CreateMode.PERSISTENT] {CreateMode} The creation mode.
      * @return {Transaction} this transaction instance.
      */
-    private create (path, data, acls, mode) {
-        var optionalArgs = [data, acls, mode],
-            self = this,
-            currentPath = '',
-            nodes;
+    public create (path: string, data?: Buffer, acls?: ACL[], mode?: CreateMode): this {
+        validate(path);
 
-        Path.validate(path);
-
-        // Reset arguments so we can reassign correct value to them.
-        data = acls = mode = undefined;
-        optionalArgs.forEach(function (arg, index) {
-            if (Array.isArray(arg)) {
-                acls = arg;
-            } else if (typeof arg === 'number') {
-                mode = arg;
-            } else if (Buffer.isBuffer(arg)) {
-                data = arg;
-            }
-        });
-
-        acls = Array.isArray(acls) ? acls : ACLImport.OPEN_ACL_UNSAFE;
+        acls = Array.isArray(acls) ? acls : ACL.OPEN_ACL_UNSAFE;
         mode = typeof mode === 'number' ? mode : CreateMode.PERSISTENT;
 
         assert(
@@ -93,10 +76,9 @@ export class Transaction {
      * @param [version=-1] {Number} The version of the znode.
      * @return {Transaction} this transaction instance.
      */
-    private check (path, version) {
-        version = version || -1;
+    public check (path: string, version: number = -1): this {
 
-        Path.validate(path);
+        validate(path);
         assert(typeof version === 'number', 'version must be a number.');
 
         this.ops.push({
@@ -117,10 +99,8 @@ export class Transaction {
      * @param [version=-1] {Number} The version of the znode.
      * @return {Transaction} this transaction instance.
      */
-    private setData (path, data, version) {
-        version = version || -1;
-
-        Path.validate(path);
+    public setData (path: string, data: Buffer | null, version: number = -1): this {
+        validate(path);
         assert(
             data === null || data === undefined || Buffer.isBuffer(data),
             'data must be a valid buffer, null or undefined.'
@@ -145,10 +125,9 @@ export class Transaction {
      * @param [version=-1] {Number} The version of the znode.
      * @return {Transaction} this transaction instance.
      */
-    private remove (path, version) {
-        version = version || -1;
+    private (path: string, version: number = -1): this {
 
-        Path.validate(path);
+        validate(path);
         assert(typeof version === 'number', 'version must be a number.');
 
         this.ops.push({
@@ -166,11 +145,10 @@ export class Transaction {
      * @method commit
      * @param callback {Function} callback function.
      */
-    private commit (callback) {
+    public commit (callback: (error: Error | Exception, results?: any) => void): void {
         assert(typeof callback === 'function', 'callback must be a function');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.TransactionRequest(this.ops),
             request;
 
@@ -191,8 +169,8 @@ export class Transaction {
 
                 // Find if there is an op which caused the transaction to fail.
                 if (result.type === jute.OP_CODES.ERROR &&
-                        result.err !== ExceptionImport.OK) {
-                    error = ExceptionImport.create(result.err);
+                        result.err !== Exception.OK) {
+                    error = Exception.create(result.err);
                     break;
                 }
             }

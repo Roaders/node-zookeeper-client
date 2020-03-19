@@ -12,7 +12,7 @@ export class Id{
     static ANYONE_ID_UNSAFE = new Id('world', 'anyone');
     static AUTH_IDS = new Id('auth', '');
 
-    constructor(private scheme: string, private id: string) {
+    constructor(public scheme: string, public id: string) {
         if (!scheme || typeof scheme !== 'string') {
             throw new Error('scheme must be a non-empty string.');
         }

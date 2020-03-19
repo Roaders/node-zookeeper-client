@@ -87,15 +87,15 @@ export class ConnectionStringParser{
      * @method getConnectionString
      * @return The connection string.
      */
-    private getConnectionString() {
+    public getConnectionString() {
         return this.connectionString;
     };
 
-    private getChrootPath() {
+    public getChrootPath() {
         return this.chrootPath;
     };
 
-    private getServers() {
+    public getServers() {
         return this.servers.slice(0);
     };
 }

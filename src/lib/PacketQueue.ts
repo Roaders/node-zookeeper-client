@@ -17,7 +17,7 @@ export class PacketQueue extends EventEmitter {
 
     private queue = [];
 
-    private push (packet) {
+    public push (packet) {
         if (typeof packet !== 'object') {
             throw new Error('packet must be a valid object.');
         }
@@ -28,7 +28,7 @@ export class PacketQueue extends EventEmitter {
     };
 
 
-    private unshift (packet) {
+    public unshift (packet) {
         if (typeof packet !== 'object') {
             throw new Error('packet must be a valid object.');
         }
@@ -37,7 +37,7 @@ export class PacketQueue extends EventEmitter {
         this.emit('readable');
     };
 
-    private shift () {
+    public shift () {
         return this.queue.shift();
     };
 }

@@ -6,6 +6,7 @@
  */
 
 import { Client } from "./lib/client";
+import { Option } from "./lib/contracts";
 
 /**
  * Create a new ZooKeeper client.
@@ -13,6 +14,6 @@ import { Client } from "./lib/client";
  * @method createClient
  * @for node-zookeeper-client
  */
-export function createClient(connectionString, options) {
+export function createClient(connectionString: string, options?: Partial<Option>): Client {
     return new Client(connectionString, options);
 }

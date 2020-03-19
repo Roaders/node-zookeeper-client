@@ -4,25 +4,32 @@ import { ConnectionManager, STATES } from "./ConnectionManager";
 import { State } from "./State";
 import { validate } from "./Path";
 import { ACL, fromRecord } from "./ACL";
-import CreateMode from "./CreateMode"
+import { CreateMode } from "./CreateMode"
 import { Transaction } from "./Transaction";
+import { Stat } from "./contracts";
+import { Option } from "./contracts"
 
-var async             = require('async');
-var u                 = require('underscore');
-var assert            = require('assert');
-var jute              = require('./lib/jute');
+var async = require('async');
+var u = require('underscore');
+var assert = require('assert');
+var jute = require('./lib/jute');
 
 // Constants.
 const CLIENT_DEFAULT_OPTIONS = {
-    sessionTimeout : 30000, // Default to 30 seconds.
-    spinDelay : 1000, // Defaults to 1 second.
-    retries : 0 // Defaults to 0, no retry.
+    sessionTimeout: 30000, // Default to 30 seconds.
+    spinDelay: 1000, // Defaults to 1 second.
+    retries: 0 // Defaults to 0, no retry.
 };
 
-
-
-
 const DATA_SIZE_LIMIT = 1048576; // 1 mega bytes.
+
+type pathCallback = (error: Error | Exception, path: string) => void
+type exceptionCallback = (error: Error | Exception) => void;
+type statCallback = (error: Error | Exception, stat: Stat) => void;
+type bufferCallback = (error: Error | Exception, data: Buffer, stat: Stat) => void;
+type aclCallback = (error: Error | Exception, acls: ACL[], stat: Stat) => void;
+type childrenCallback = (error: Error | Exception, children: string[], stat: Stat) => void;
+type watcher = (event: Event) => void
 
 /**
  * The ZooKeeper client constructor.
@@ -32,38 +39,56 @@ const DATA_SIZE_LIMIT = 1048576; // 1 mega bytes.
  * @param connectionString {String} ZooKeeper server ensemble string.
  * @param [options] {Object} client options.
  */
-export class Client extends EventEmitter{
+export class Client extends EventEmitter {
     private connectionManager: ConnectionManager;
     private state: State = State.DISCONNECTED;
 
-    constructor(connectionString, private options) {
+    constructor(connectionString, private options: Partial<Option>) {
         super();
 
         if (!(this instanceof Client)) {
             return new Client(connectionString, options);
         }
-    
+
         options = options || {};
-    
+
         assert(
             connectionString && typeof connectionString === 'string',
             'connectionString must be an non-empty string.'
         );
-    
+
         assert(
             typeof options === 'object',
             'options must be a valid object'
         );
-    
+
         options = u.defaults(u.clone(options), CLIENT_DEFAULT_OPTIONS);
-    
+
         this.connectionManager = new ConnectionManager(
             connectionString,
             options,
             this.onConnectionManagerState.bind(this)
         );
-    
+
         this.on('state', state => this.defaultStateListener(state));
+    }
+
+    public on(event: "state", cb: (state: State) => void): this;
+    public on(event: "connected" | "connectedReadOnly" | "disconnected" | "expired" | "authenticationFailed" | string, cb: () => void): this;
+    public on(event: string, listener: (...args: any[]) => void): this{
+        return super.on(event, listener)
+    }
+
+    public once(event: "state", cb: (state: State) => void): this;
+    public once(event: "connected" | "connectedReadOnly" | "disconnected" | "expired" | "authenticationFailed" | string, cb: () => void): this;
+    public once(event: string, listener: (...args: any[]) => void): this{
+        return super.once(event, listener)
+    }
+
+    public addListener(event: "state", cb: (state: State) => void): this;
+    public addListener(event: "connected" | "connectedReadOnly" | "disconnected" | "expired" | "authenticationFailed" | string, cb: () => void): this;
+    public addListener(event: string, listener: (...args: any[]) => void): this{
+        return super.addListener(event, listener)
     }
 
     /**
@@ -96,7 +121,7 @@ export class Client extends EventEmitter{
      *
      * @method connect
      */
-    private connect () {
+    public connect() {
         this.connectionManager.connect();
     };
 
@@ -105,36 +130,36 @@ export class Client extends EventEmitter{
      *
      * @method connect
      */
-    private close () {
+    public close() {
         this.connectionManager.close();
     };
 
     /**
      * Private method to translate connection manager state into client state.
      */
-    private onConnectionManagerState (connectionManagerState) {
+    private onConnectionManagerState(connectionManagerState: number) {
         var state;
 
         // Convert connection state to ZooKeeper state.
         switch (connectionManagerState) {
-        case STATES.DISCONNECTED:
-            state = State.DISCONNECTED;
-            break;
-        case STATES.CONNECTED:
-            state = State.SYNC_CONNECTED;
-            break;
-        case STATES.CONNECTED_READ_ONLY:
-            state = State.CONNECTED_READ_ONLY;
-            break;
-        case STATES.SESSION_EXPIRED:
-            state = State.EXPIRED;
-            break;
-        case STATES.AUTHENTICATION_FAILED:
-            state = State.AUTH_FAILED;
-            break;
-        default:
-            // Not a event in which client is interested, so skip it.
-            return;
+            case STATES.DISCONNECTED:
+                state = State.DISCONNECTED;
+                break;
+            case STATES.CONNECTED:
+                state = State.SYNC_CONNECTED;
+                break;
+            case STATES.CONNECTED_READ_ONLY:
+                state = State.CONNECTED_READ_ONLY;
+                break;
+            case STATES.SESSION_EXPIRED:
+                state = State.EXPIRED;
+                break;
+            case STATES.AUTHENTICATION_FAILED:
+                state = State.AUTH_FAILED;
+                break;
+            default:
+                // Not a event in which client is interested, so skip it.
+                return;
         }
 
         if (this.state !== state) {
@@ -149,7 +174,7 @@ export class Client extends EventEmitter{
      * @method getState
      * @return {State} the state of the client.
      */
-    private getState () {
+    public getState(): State {
         return this.state;
     };
 
@@ -161,7 +186,7 @@ export class Client extends EventEmitter{
      * @method getSessionId
      * @return {Buffer} the session id, 8 bytes long buffer.
      */
-    private getSessionId () {
+    public getSessionId(): Buffer {
         return this.connectionManager.getSessionId();
     };
 
@@ -173,7 +198,7 @@ export class Client extends EventEmitter{
      * @method getSessionPassword
      * @return {Buffer} the session password, 16 bytes buffer.
      */
-    private getSessionPassword () {
+    public getSessionPassword(): Buffer {
         return this.connectionManager.getSessionPassword();
     };
 
@@ -185,7 +210,7 @@ export class Client extends EventEmitter{
      * @method getSessionTimeout
      * @return {Integer} the session timeout value.
      */
-    private getSessionTimeout () {
+    public getSessionTimeout(): number {
         return this.connectionManager.getSessionTimeout();
     };
 
@@ -197,7 +222,7 @@ export class Client extends EventEmitter{
      * @param scheme {String} The authentication scheme.
      * @param auth {Buffer} The authentication data buffer.
      */
-    private addAuthInfo (scheme, auth) {
+    public addAuthInfo(scheme: string, auth: Buffer): void {
         assert(
             scheme || typeof scheme === 'string',
             'scheme must be a non-empty string.'
@@ -224,28 +249,12 @@ export class Client extends EventEmitter{
      * @param [mode=CreateMode.PERSISTENT] {CreateMode} The creation mode.
      * @param callback {Function} The callback function.
      */
-    private create (path, data, acls, mode, callback) {
-        var self = this,
-            optionalArgs = [data, acls, mode, callback],
-            header,
+    public create(path: string, data: Buffer, acls: ACL[], mode: CreateMode, callback: pathCallback) {
+        var header,
             payload,
             request;
 
         validate(path);
-
-        // Reset arguments so we can reassign correct value to them.
-        data = acls = mode = callback = undefined;
-        optionalArgs.forEach(function (arg, index) {
-            if (Array.isArray(arg)) {
-                acls = arg;
-            } else if (typeof arg === 'number') {
-                mode = arg;
-            } else if (Buffer.isBuffer(arg)) {
-                data = arg;
-            } else if (typeof arg === 'function') {
-                callback = arg;
-            }
-        });
 
         assert(
             typeof callback === 'function',
@@ -286,10 +295,9 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, function (error, response) {
                     if (error) {
                         next(error);
                         return;
@@ -311,10 +319,15 @@ export class Client extends EventEmitter{
      * @param [version=-1] {Number} The version of the node.
      * @param callback {Function} The callback function.
      */
-    private remove (path, version, callback) {
-        if (!callback) {
-            callback = version;
+    public remove(path: string, callback: exceptionCallback): void;
+    public remove(path: string, version: number, callback: exceptionCallback): void;
+    public remove(path: string, versionOrCallback: number | exceptionCallback, callback?: exceptionCallback): void {
+        let version: number;
+        if (typeof versionOrCallback === "function") {
+            callback = versionOrCallback;
             version = -1;
+        } else {
+            version = versionOrCallback;
         }
 
         validate(path);
@@ -323,8 +336,7 @@ export class Client extends EventEmitter{
         assert(typeof version === 'number', 'version must be a number.');
 
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.DeleteRequest(),
             request;
 
@@ -335,10 +347,9 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, function (error, response) {
                     next(error);
                 });
             },
@@ -353,10 +364,15 @@ export class Client extends EventEmitter{
      * @param [version=-1] {Number} The version of the node.
      * @param callback {Function} The callback function.
      */
-    private removeRecursive(path, version, callback) {
-        if (!callback) {
-            callback = version;
+    public removeRecursive(path: string, callback: exceptionCallback): void;
+    public removeRecursive(path: string, version: number, callback: exceptionCallback): void;
+    public removeRecursive(path: string, versionOrCallback: number | exceptionCallback, callback?: exceptionCallback): void {
+        let version: number;
+        if (typeof versionOrCallback === "function") {
+            callback = versionOrCallback;
             version = -1;
+        } else {
+            version = versionOrCallback;
         }
 
         validate(path);
@@ -372,7 +388,7 @@ export class Client extends EventEmitter{
                 return;
             }
             async.eachSeries(children.reverse(), function (nodePath, next) {
-                self.remove(nodePath, version, function(err) {
+                self.remove(nodePath, version, function (err) {
                     // Skip NO_NODE exception
                     if (err && err.getCode() === Exception.NO_NODE) {
                         next(null);
@@ -396,10 +412,15 @@ export class Client extends EventEmitter{
      * @param [version=-1] {Number} The version of the node.
      * @param callback {Function} The callback function.
      */
-    private setData (path, data, version, callback) {
-        if (!callback) {
-            callback = version;
+    public setData(path: string, data: Buffer | null, callback: statCallback): void;
+    public setData(path: string, data: Buffer | null, version: number, callback: statCallback): void;
+    public setData(path: string, data: Buffer | null, versionOrCallback: number | statCallback, callback?: statCallback): void {
+        let version: number;
+        if (typeof versionOrCallback === "function") {
+            callback = versionOrCallback;
             version = -1;
+        } else {
+            version = versionOrCallback;
         }
 
         validate(path);
@@ -418,8 +439,7 @@ export class Client extends EventEmitter{
             );
         }
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.SetDataRequest(),
             request;
 
@@ -432,10 +452,9 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, function (error, response) {
                     if (error) {
                         next(error);
                         return;
@@ -463,18 +482,22 @@ export class Client extends EventEmitter{
      * @param [watcher] {Function} The watcher function.
      * @param callback {Function} The callback function.
      */
-    private getData (path, watcher, callback) {
-        if (!callback) {
-            callback = watcher;
+    public getData(path: string, callback: bufferCallback): void;
+    public getData(path: string, watcher: watcher, callback: bufferCallback): void;
+    public getData(path: string, watcherOrCallback: watcher | bufferCallback, callback?: bufferCallback): void {
+        let watcher: ((event: Event) => void) | undefined;
+        if (callback == null) {
+            callback = watcherOrCallback as bufferCallback;
             watcher = undefined;
+        } else {
+            watcher = watcherOrCallback as watcher;
         }
 
         validate(path);
 
         assert(typeof callback === 'function', 'callback must be a function.');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.GetDataRequest(),
             request;
 
@@ -485,17 +508,16 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, (error, response) => {
                     if (error) {
                         next(error);
                         return;
                     }
 
                     if (watcher) {
-                        self.connectionManager.registerDataWatcher(path, watcher);
+                        this.connectionManager.registerDataWatcher(path, watcher);
                     }
 
                     next(null, response.payload.data, response.payload.stat);
@@ -517,10 +539,15 @@ export class Client extends EventEmitter{
      * @param [version] {Number} The version of the node.
      * @param callback {Function} The callback function.
      */
-    private setACL (path, acls, version, callback) {
-        if (!callback) {
-            callback = version;
+    public setACL(path: string, acls: ACL[], callback: statCallback): void;
+    public setACL(path: string, acls: ACL[], version: number, callback: statCallback): void;
+    public setACL(path: string, acls: ACL[], versionOrCallback: number | statCallback, callback?: statCallback): void {
+        let version: number;
+        if (typeof versionOrCallback === "function") {
+            callback = versionOrCallback;
             version = -1;
+        } else {
+            version = versionOrCallback;
         }
 
         validate(path);
@@ -531,8 +558,7 @@ export class Client extends EventEmitter{
         );
         assert(typeof version === 'number', 'version must be a number.');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.SetACLRequest(),
             request;
 
@@ -547,10 +573,9 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, (error, response) => {
                     if (error) {
                         next(error);
                         return;
@@ -570,12 +595,11 @@ export class Client extends EventEmitter{
      * @param path {String} The node path.
      * @param callback {Function} The callback function.
      */
-    private getACL (path, callback) {
+    public getACL(path: string, callback: aclCallback): void {
         validate(path);
         assert(typeof callback === 'function', 'callback must be a function.');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.GetACLRequest(),
             request;
 
@@ -584,10 +608,9 @@ export class Client extends EventEmitter{
         payload.path = path;
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, (error, response) => {
                     if (error) {
                         next(error);
                         return;
@@ -622,17 +645,21 @@ export class Client extends EventEmitter{
      * @param [watcher] {Function} The watcher function.
      * @param callback {Function} The callback function.
      */
-    private exists (path, watcher, callback) {
-        if (!callback) {
-            callback = watcher;
+    public exists(path: string, callback: statCallback): void;
+    public exists(path: string, watcher: watcher, callback: statCallback): void;
+    public exists(path: string, watcherOrCallback: watcher | statCallback, callback?: statCallback): void {
+        let watcher: watcher | undefined;
+        if (callback == null) {
+            callback = watcherOrCallback as statCallback;
             watcher = undefined;
+        } else {
+            watcher = watcherOrCallback as watcher;
         }
 
         validate(path);
         assert(typeof callback === 'function', 'callback must be a function.');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.ExistsRequest(),
             request;
 
@@ -643,10 +670,9 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, (error, response) => {
                     if (error && error.getCode() !== Exception.NO_NODE) {
                         next(error);
                         return;
@@ -656,12 +682,12 @@ export class Client extends EventEmitter{
 
                     if (watcher) {
                         if (existence) {
-                            self.connectionManager.registerDataWatcher(
+                            this.connectionManager.registerDataWatcher(
                                 path,
                                 watcher
                             );
                         } else {
-                            self.connectionManager.registerExistenceWatcher(
+                            this.connectionManager.registerExistenceWatcher(
                                 path,
                                 watcher
                             );
@@ -691,17 +717,21 @@ export class Client extends EventEmitter{
      * @param [watcher] {Function} The watcher function.
      * @param callback {Function} The callback function.
      */
-    private getChildren (path, watcher, callback?: Function) {
-        if (!callback) {
-            callback = watcher;
+    public getChildren(path: string, callback: childrenCallback): void;
+    public getChildren(path: string, watcher: watcher, callback: childrenCallback): void;
+    public getChildren(path: string, watcherOrCallback: watcher | childrenCallback, callback?: childrenCallback): void {
+        let watcher: watcher | undefined;
+        if (callback == null) {
+            callback = watcherOrCallback as childrenCallback;
             watcher = undefined;
+        } else {
+            watcher = watcherOrCallback as watcher;
         }
 
         validate(path);
         assert(typeof callback === 'function', 'callback must be a function.');
 
-        var self = this,
-            header = new jute.protocol.RequestHeader(),
+        var header = new jute.protocol.RequestHeader(),
             payload = new jute.protocol.GetChildren2Request(),
             request;
 
@@ -712,17 +742,16 @@ export class Client extends EventEmitter{
 
         request = new jute.Request(header, payload);
 
-        attempt(
-            self,
-            function (attempts, next) {
-                self.connectionManager.queue(request, function (error, response) {
+        this.attempt(
+            (attempts, next) => {
+                this.connectionManager.queue(request, (error, response) => {
                     if (error) {
                         next(error);
                         return;
                     }
 
                     if (watcher) {
-                        self.connectionManager.registerChildWatcher(path, watcher);
+                        this.connectionManager.registerChildWatcher(path, watcher);
                     }
 
                     next(null, response.payload.children, response.payload.stat);
@@ -741,15 +770,14 @@ export class Client extends EventEmitter{
      * @param path {String} The node path.
      * @param callback {Function} The callback function.
      */
-    private listSubTreeBFS(path, callback) {
+    public listSubTreeBFS(path: string, callback: (error: Error | Exception, children: string[]) => void) {
         validate(path);
         assert(typeof callback === 'function', 'callback must be a function.');
 
-        var self = this;
         var tree = [path];
 
-        async.reduce(tree, tree, function(memo, item, next) {
-            self.getChildren(item, function (error, children) {
+        async.reduce(tree, tree, (memo, item, next) => {
+            this.getChildren(item, (error, children) => {
                 if (error) {
                     next(error);
                     return;
@@ -758,7 +786,7 @@ export class Client extends EventEmitter{
                     next(null, tree);
                     return;
                 }
-                children.forEach(function(child) {
+                children.forEach(function (child) {
                     var childPath = item + '/' + child;
 
                     if (item === '/') {
@@ -782,27 +810,18 @@ export class Client extends EventEmitter{
      * @param [mode=CreateMode.PERSISTENT] {CreateMode} The creation mode.
      * @param callback {Function} The callback function.
      */
-    private mkdirp (path, data, acls, mode, callback) {
-        var optionalArgs = [data, acls, mode, callback],
-            self = this,
-            currentPath = '',
-            nodes;
+    public mkdirp(path: string, dataOrCallback: Buffer | pathCallback, aclsOrCallback?: ACL[] | pathCallback, modeOrCallback?: CreateMode | pathCallback, callback?: pathCallback) {
+        let data = typeof dataOrCallback === "function" ? undefined : dataOrCallback;
+        let acls = typeof aclsOrCallback === "function" ? undefined : aclsOrCallback;
+        let mode = typeof modeOrCallback === "function" ? undefined : modeOrCallback;
 
-        validate(path);
-
-        // Reset arguments so we can reassign correct value to them.
-        data = acls = mode = callback = undefined;
-        optionalArgs.forEach(function (arg, index) {
-            if (Array.isArray(arg)) {
-                acls = arg;
-            } else if (typeof arg === 'number') {
-                mode = arg;
-            } else if (Buffer.isBuffer(arg)) {
-                data = arg;
-            } else if (typeof arg === 'function') {
+        [callback, modeOrCallback, aclsOrCallback, dataOrCallback].forEach(arg => {
+            if (typeof arg === 'function') {
                 callback = arg;
             }
         });
+
+        validate(path);
 
         assert(
             typeof callback === 'function',
@@ -811,6 +830,8 @@ export class Client extends EventEmitter{
 
         acls = Array.isArray(acls) ? acls : ACL.OPEN_ACL_UNSAFE;
         mode = typeof mode === 'number' ? mode : CreateMode.PERSISTENT;
+
+        let currentPath = "";
 
         assert(
             data === null || data === undefined || Buffer.isBuffer(data),
@@ -827,11 +848,11 @@ export class Client extends EventEmitter{
         assert(acls.length > 0, 'acls must be a non-empty array.');
 
         // Remove the empty string
-        nodes = path.split('/').slice(1);
+        const nodes: string[] = path.split('/').slice(1);
 
-        async.eachSeries(nodes, function (node, next) {
+        async.eachSeries(nodes, (node, next) => {
             currentPath = currentPath + '/' + node;
-            self.create(currentPath, data, acls, mode, function (error) {
+            this.create(currentPath, data, acls, mode, function (error) {
                 // Skip node exist error.
                 if (error && error.getCode() === Exception.NODE_EXISTS) {
                     next(null);
@@ -851,108 +872,111 @@ export class Client extends EventEmitter{
      * @method transaction
      * @return {Transaction} an instance of Transaction.
      */
-    private transaction () {
+    public transaction(): Transaction {
         return new Transaction(this.connectionManager);
     };
-}
 
-/**
- * Try to execute the given function 'fn'. If it fails to execute, retry for
- * 'self.options.retires' times. The duration between each retry starts at
- * 1000ms and grows exponentially as:
- *
- * duration = Math.min(1000 * Math.pow(2, attempts), sessionTimeout)
- *
- * When the given function is executed successfully or max retry has been
- * reached, an optional callback function will be invoked with the error (if
- * any) and the result.
- *
- * fn prototype:
- * function(attempts, next);
- * attempts: tells you what is the current execution attempts. It starts with 0.
- * next: You invoke the next function when complete or there is an error.
- *
- * next prototype:
- * function(error, ...);
- * error: The error you encounter in the operation.
- * other arguments: Will be passed to the optional callback
- *
- * callback prototype:
- * function(error, ...)
- *
- * @private
- * @method attempt
- * @param self {Client} an instance of zookeeper client.
- * @param fn {Function} the function to execute.
- * @param callback {Function} optional callback function.
- *
- */
-function attempt(self, fn, callback) {
-    var count = 0,
-        retry = true,
-        retries = self.options.retries,
-        results = {};
+    /**
+     * Try to execute the given function 'fn'. If it fails to execute, retry for
+     * 'self.options.retires' times. The duration between each retry starts at
+     * 1000ms and grows exponentially as:
+     *
+     * duration = Math.min(1000 * Math.pow(2, attempts), sessionTimeout)
+     *
+     * When the given function is executed successfully or max retry has been
+     * reached, an optional callback function will be invoked with the error (if
+     * any) and the result.
+     *
+     * fn prototype:
+     * function(attempts, next);
+     * attempts: tells you what is the current execution attempts. It starts with 0.
+     * next: You invoke the next function when complete or there is an error.
+     *
+     * next prototype:
+     * function(error, ...);
+     * error: The error you encounter in the operation.
+     * other arguments: Will be passed to the optional callback
+     *
+     * callback prototype:
+     * function(error, ...)
+     *
+     * @private
+     * @method attempt
+     * @param self {Client} an instance of zookeeper client.
+     * @param fn {Function} the function to execute.
+     * @param callback {Function} optional callback function.
+     *
+     */
+    private attempt(fn: Function, callback: Function) {
+        var count = 0,
+            retry = true,
+            retries = this.options.retries,
+            results = {};
 
-    assert(typeof fn === 'function', 'fn must be a function.');
+        assert(typeof fn === 'function', 'fn must be a function.');
 
-    assert(
-        typeof retries === 'number' && retries >= 0,
-        'retries must be an integer greater or equal to 0.'
-    );
+        assert(
+            typeof retries === 'number' && retries >= 0,
+            'retries must be an integer greater or equal to 0.'
+        );
 
-    assert(typeof callback === 'function', 'callback must be a function.');
+        assert(typeof callback === 'function', 'callback must be a function.');
 
-    async.whilst(
-        function () {
-            return count <= retries && retry;
-        },
-        function (next) {
-            var attempts = count;
+        async.whilst(
+            () => {
+                return count <= retries && retry;
+            },
+            next => {
+                var attempts = count;
 
-            count += 1;
+                count += 1;
 
-            fn(attempts, function (error) {
-                var args,
-                    sessionTimeout;
+                const connectionManager = this.connectionManager;
 
-                results[attempts] = {};
-                results[attempts].error = error;
+                fn(attempts, function (error) {
+                    var args,
+                        sessionTimeout;
 
-                if (arguments.length > 1) {
-                    args = Array.prototype.slice.apply(arguments);
-                    results[attempts].args = args.slice(1);
+                    results[attempts] = {};
+                    results[attempts].error = error;
+
+                    if (arguments.length > 1) {
+                        args = Array.prototype.slice.apply(arguments);
+                        results[attempts].args = args.slice(1);
+                    }
+
+                    if (error && error.code === Exception.CONNECTION_LOSS) {
+                        retry = true;
+                    } else {
+                        retry = false;
+                    }
+
+                    if (!retry || count > retries) {
+                        // call next so we can get out the loop without delay
+                        next();
+                    } else {
+                        sessionTimeout = connectionManager.getSessionTimeout();
+
+                        // Exponentially back-off
+                        setTimeout(
+                            next,
+                            Math.min(1000 * Math.pow(2, attempts), sessionTimeout)
+                        );
+                    }
+                });
+            },
+            error => {
+                var args = [],
+                    result = results[count - 1];
+
+                if (callback) {
+                    args.push(result.error);
+                    Array.prototype.push.apply(args, result.args);
+
+                    callback.apply(null, args);
                 }
-
-                if (error && error.code === Exception.CONNECTION_LOSS) {
-                    retry = true;
-                } else {
-                    retry = false;
-                }
-
-                if (!retry || count > retries) {
-                    // call next so we can get out the loop without delay
-                    next();
-                } else {
-                    sessionTimeout = self.connectionManager.getSessionTimeout();
-
-                    // Exponentially back-off
-                    setTimeout(
-                        next,
-                        Math.min(1000 * Math.pow(2, attempts), sessionTimeout)
-                    );
-                }
-            });
-        },
-        function (error) {
-            var args = [],
-                result = results[count - 1];
-
-            if (callback) {
-                args.push(result.error);
-                Array.prototype.push.apply(args, result.args);
-
-                callback.apply(null, args);
             }
-        }
-    );
+        );
+    }
 }
+

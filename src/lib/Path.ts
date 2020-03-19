@@ -45,5 +45,3 @@ export function validate(path) {
 
     // TODO filter out special characters
 }
-
-exports.validate = validate;

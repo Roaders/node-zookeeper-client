@@ -9,10 +9,7 @@ var assert = require('assert');
 
 // Event types
 export const TYPES = {
-    NODE_CREATED : 1,
-    NODE_DELETED : 2,
-    NODE_DATA_CHANGED : 3,
-    NODE_CHILDREN_CHANGED : 4
+
 };
 
 /**
@@ -45,7 +42,13 @@ function validateType(type) {
  * @param [path] {String} The node path of the event.
  */
 export class Event{
-    constructor (private type, private name: string, private path) {
+
+    public static NODE_CREATED : 1;
+    public static NODE_DELETED : 2;
+    public static NODE_DATA_CHANGED : 3;
+    public static NODE_CHILDREN_CHANGED : 4;
+
+    constructor (public type, public name: string, public path) {
         validateType(type);
         assert(
             name && typeof name === 'string',
@@ -59,7 +62,7 @@ export class Event{
      * @method getType
      * @return {String} The name.
      */
-    private getType () {
+    public getType () {
         return this.type;
     };
 
@@ -69,7 +72,7 @@ export class Event{
      * @method getName
      * @return {String} The name.
      */
-    private getName () {
+    public getName () {
         return this.name;
     };
 
@@ -79,7 +82,7 @@ export class Event{
      * @method getPath
      * @return {String} The path.
      */
-    private getPath () {
+    public getPath () {
         return this.path;
     };
 
@@ -89,7 +92,7 @@ export class Event{
      * @method toString
      * @return {String} The string representation.
      */
-    private toString () {
+    public toString () {
         var result = this.name + '[' + this.type + ']';
 
         if (this.path) {

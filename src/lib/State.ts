@@ -26,7 +26,7 @@ export class State {
     static SASL_AUTHENTICATED = new State('SASL_AUTHENTICATED', 6);
     static EXPIRED = new State('EXPIRED', -122);
 
-    constructor(private readonly name: string, private readonly code: number) {
+    constructor(private readonly name: string, public readonly code: number) {
 
         assert(
             name && typeof name === 'string',
@@ -40,7 +40,7 @@ export class State {
      * @method getName
      * @return {String} The name o fhte state.
      */
-    private getName  () {
+    public getName  () {
         return this.name;
     };
 
@@ -49,7 +49,7 @@ export class State {
      * @method getCode
      * @return {Number} The code of the state.
      */
-    private getCode  () {
+    public getCode  () {
         return this.code;
     };
 
@@ -59,7 +59,7 @@ export class State {
      * @method toString
      * @return {String} The string representation of the state.
      */
-    private toString  () {
+    public toString  () {
         return this.name + '[' + this.code + ']';
     };
 }
