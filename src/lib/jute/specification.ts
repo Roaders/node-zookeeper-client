@@ -1,4 +1,68 @@
-{
+export type ArgumentType = "ustring" | 
+    "long" | 
+    "int" | 
+    "data.Id" | 
+    "buffer" | 
+    "vector<data.ACL>" | 
+    "vector<ustring>" | 
+    "data.Stat" | 
+    "boolean";
+
+export type Argument = {
+    name: string;
+    type: ArgumentType;
+}
+
+export type Specification<T> = {
+    data: {
+        Id: T,
+        ACL: T,
+        Stat: T,
+    },
+    protocol: {
+        ConnectRequest: T,
+        ConnectResponse: T,
+        RequestHeader: T,
+        ReplyHeader: T,
+        AuthPacket: T,
+        CreateRequest: T,
+        CreateResponse: T,
+        DeleteRequest: T,
+        GetChildren2Request: T,
+        GetChildren2Response: T,
+        ExistsRequest: T,
+        ExistsResponse: T,
+        SetDataRequest: T,
+        SetDataResponse: T,
+        GetDataRequest: T,
+        GetDataResponse: T,
+        GetACLRequest: T,
+        GetACLResponse: T,
+        SetACLRequest: T,
+        SetACLResponse: T,
+        WatcherEvent: T,
+        SetWatches: T,
+        MultiHeader: T,
+        CheckVersionRequest: T,
+        ErrorResponse: T,
+    }
+}
+
+export interface Stat {
+    czxid: number;
+    mzxid: number;
+    ctime: number;
+    mtime: number;
+    version: number;
+    cversion: number;
+    aversion: number;
+    ephemeralOwner: number;
+    dataLength: number;
+    numChildren: number;
+    pzxid: number;
+}
+
+export const Jute: Specification<Argument[]> = {
     "data" : {
         "Id" : [
             { "name" : "scheme", "type" : "ustring" },

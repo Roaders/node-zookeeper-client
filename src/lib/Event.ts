@@ -48,7 +48,34 @@ export class Event{
     public static NODE_DATA_CHANGED : 3;
     public static NODE_CHILDREN_CHANGED : 4;
 
-    constructor (public type, public name: string, public path) {
+    /**
+     * Factory method to crate an instance of event from an instance of
+     * jute.WatcherEvent.
+     *
+     * @method create
+     * @param watcherEvent {WatcherEvent} an instance of jute.WatcherEvent
+     */
+    public static create(watcherEvent) {
+        assert(watcherEvent, 'watcherEvent must be a valid object.');
+        validateType(watcherEvent.type);
+
+        var name,
+            i = 0,
+            keys = Object.keys(TYPES);
+
+        while (i < keys.length) {
+            if (TYPES[keys[i]] === watcherEvent.type) {
+                name = keys[i];
+                break;
+            }
+
+            i += 1;
+        }
+
+        return new Event(watcherEvent.type, name, watcherEvent.path);
+    }
+
+    constructor (public type, public name: string, public path: string) {
         validateType(type);
         assert(
             name && typeof name === 'string',
@@ -105,29 +132,4 @@ export class Event{
 
 
 
-/**
- * Factory method to crate an instance of event from an instance of
- * jute.WatcherEvent.
- *
- * @method create
- * @param watcherEvent {WatcherEvent} an instance of jute.WatcherEvent
- */
-export function create(watcherEvent) {
-    assert(watcherEvent, 'watcherEvent must be a valid object.');
-    validateType(watcherEvent.type);
 
-    var name,
-        i = 0,
-        keys = Object.keys(TYPES);
-
-    while (i < keys.length) {
-        if (TYPES[keys[i]] === watcherEvent.type) {
-            name = keys[i];
-            break;
-        }
-
-        i += 1;
-    }
-
-    return new Event(watcherEvent.type, name, watcherEvent.path);
-}

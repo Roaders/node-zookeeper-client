@@ -1,4 +1,4 @@
-import { Exception, EXCEPTION_CODES } from "./Exception";
+import { Exception } from "./Exception";
 import { EventEmitter } from "events";
 import { ConnectionManager, STATES } from "./ConnectionManager";
 import { State } from "./State";
@@ -6,30 +6,13 @@ import { validate } from "./Path";
 import { ACL, fromRecord } from "./ACL";
 import { CreateMode } from "./CreateMode"
 import { Transaction } from "./Transaction";
-import { Stat } from "./contracts";
-import { Option } from "./contracts"
+import { Option, pathCallback, exceptionCallback, statCallback, bufferCallback, watcher, aclCallback, childrenCallback } from "./contracts"
+import { CLIENT_DEFAULT_OPTIONS, DATA_SIZE_LIMIT } from "./constants";
 
 var async = require('async');
-var u = require('underscore');
 var assert = require('assert');
 var jute = require('./lib/jute');
 
-// Constants.
-const CLIENT_DEFAULT_OPTIONS = {
-    sessionTimeout: 30000, // Default to 30 seconds.
-    spinDelay: 1000, // Defaults to 1 second.
-    retries: 0 // Defaults to 0, no retry.
-};
-
-const DATA_SIZE_LIMIT = 1048576; // 1 mega bytes.
-
-type pathCallback = (error: Error | Exception, path: string) => void
-type exceptionCallback = (error: Error | Exception) => void;
-type statCallback = (error: Error | Exception, stat: Stat) => void;
-type bufferCallback = (error: Error | Exception, data: Buffer, stat: Stat) => void;
-type aclCallback = (error: Error | Exception, acls: ACL[], stat: Stat) => void;
-type childrenCallback = (error: Error | Exception, children: string[], stat: Stat) => void;
-type watcher = (event: Event) => void
 
 /**
  * The ZooKeeper client constructor.
@@ -42,27 +25,24 @@ type watcher = (event: Event) => void
 export class Client extends EventEmitter {
     private connectionManager: ConnectionManager;
     private state: State = State.DISCONNECTED;
+    private options: Option;
 
-    constructor(connectionString, private options: Partial<Option>) {
+    constructor(connectionString, options: Partial<Option>) {
         super();
 
         if (!(this instanceof Client)) {
             return new Client(connectionString, options);
         }
 
-        options = options || {};
+        this.options = {
+            ...CLIENT_DEFAULT_OPTIONS,
+            ...options,
+        }
 
         assert(
             connectionString && typeof connectionString === 'string',
             'connectionString must be an non-empty string.'
         );
-
-        assert(
-            typeof options === 'object',
-            'options must be a valid object'
-        );
-
-        options = u.defaults(u.clone(options), CLIENT_DEFAULT_OPTIONS);
 
         this.connectionManager = new ConnectionManager(
             connectionString,
@@ -322,13 +302,8 @@ export class Client extends EventEmitter {
     public remove(path: string, callback: exceptionCallback): void;
     public remove(path: string, version: number, callback: exceptionCallback): void;
     public remove(path: string, versionOrCallback: number | exceptionCallback, callback?: exceptionCallback): void {
-        let version: number;
-        if (typeof versionOrCallback === "function") {
-            callback = versionOrCallback;
-            version = -1;
-        } else {
-            version = versionOrCallback;
-        }
+        const version = typeof versionOrCallback === "function" ? -1 : versionOrCallback;
+        callback = typeof versionOrCallback === "function" ? versionOrCallback : callback as exceptionCallback;
 
         validate(path);
 
@@ -366,29 +341,22 @@ export class Client extends EventEmitter {
      */
     public removeRecursive(path: string, callback: exceptionCallback): void;
     public removeRecursive(path: string, version: number, callback: exceptionCallback): void;
-    public removeRecursive(path: string, versionOrCallback: number | exceptionCallback, callback?: exceptionCallback): void {
-        let version: number;
-        if (typeof versionOrCallback === "function") {
-            callback = versionOrCallback;
-            version = -1;
-        } else {
-            version = versionOrCallback;
-        }
+    public removeRecursive(path: string, versionOrCallback: number | exceptionCallback, optionalCallback?: exceptionCallback): void {
+        const version = typeof versionOrCallback === "function" ? -1 : versionOrCallback;
+        const callback = typeof versionOrCallback === "function" ? versionOrCallback : optionalCallback as exceptionCallback;
 
         validate(path);
 
-        assert(typeof callback === 'function', 'callback must be a function.');
+        assert(typeof optionalCallback === 'function', 'callback must be a function.');
         assert(typeof version === 'number', 'version must be a number.');
 
-        var self = this;
-
-        self.listSubTreeBFS(path, function (error, children) {
+        this.listSubTreeBFS(path, (error, children) => {
             if (error) {
                 callback(error);
                 return;
             }
-            async.eachSeries(children.reverse(), function (nodePath, next) {
-                self.remove(nodePath, version, function (err) {
+            async.eachSeries(children.reverse(), (nodePath, next) => {
+                this.remove(nodePath, version, function (err) {
                     // Skip NO_NODE exception
                     if (err instanceof Exception && err.getCode() === Exception.NO_NODE) {
                         next(null);
@@ -414,14 +382,9 @@ export class Client extends EventEmitter {
      */
     public setData(path: string, data: Buffer | null, callback: statCallback): void;
     public setData(path: string, data: Buffer | null, version: number, callback: statCallback): void;
-    public setData(path: string, data: Buffer | null, versionOrCallback: number | statCallback, callback?: statCallback): void {
-        let version: number;
-        if (typeof versionOrCallback === "function") {
-            callback = versionOrCallback;
-            version = -1;
-        } else {
-            version = versionOrCallback;
-        }
+    public setData(path: string, data: Buffer | null, versionOrCallback: number | statCallback, optionalCallback?: statCallback): void {
+        const version = typeof versionOrCallback === "function" ? -1 : versionOrCallback;
+        const callback = typeof versionOrCallback === "function" ? versionOrCallback : optionalCallback as statCallback;
 
         validate(path);
 
@@ -542,13 +505,8 @@ export class Client extends EventEmitter {
     public setACL(path: string, acls: ACL[], callback: statCallback): void;
     public setACL(path: string, acls: ACL[], version: number, callback: statCallback): void;
     public setACL(path: string, acls: ACL[], versionOrCallback: number | statCallback, callback?: statCallback): void {
-        let version: number;
-        if (typeof versionOrCallback === "function") {
-            callback = versionOrCallback;
-            version = -1;
-        } else {
-            version = versionOrCallback;
-        }
+        const version = typeof versionOrCallback === "function" ? -1 : versionOrCallback;
+        callback = typeof versionOrCallback === "function" ? versionOrCallback : callback as exceptionCallback;
 
         validate(path);
         assert(typeof callback === 'function', 'callback must be a function.');

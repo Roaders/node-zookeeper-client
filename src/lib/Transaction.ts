@@ -10,10 +10,9 @@ import { ACL } from "./ACL";
 import { Exception } from "./Exception";
 import { CreateMode } from "./CreateMode";
 import { validate } from "./Path";
-
-
-var assert            = require('assert');
-var jute              = require('./jute');
+import { OP_CODES, TransactionRequest } from "./jute";
+import { jute, Request } from "./jute";
+import assert = require("assert");
 
 /**
  * Transaction provides a builder interface that helps building an atomic set
@@ -58,7 +57,7 @@ export class Transaction {
         assert(acls.length > 0, 'acls must be a non-empty array.');
 
         this.ops.push({
-            type : jute.OP_CODES.CREATE,
+            type : OP_CODES.CREATE,
             path : path,
             data : data,
             acls : acls,
@@ -82,7 +81,7 @@ export class Transaction {
         assert(typeof version === 'number', 'version must be a number.');
 
         this.ops.push({
-            type : jute.OP_CODES.CHECK,
+            type : OP_CODES.CHECK,
             path : path,
             version : version
         });
@@ -108,7 +107,7 @@ export class Transaction {
         assert(typeof version === 'number', 'version must be a number.');
 
         this.ops.push({
-            type : jute.OP_CODES.SET_DATA,
+            type : OP_CODES.SET_DATA,
             path : path,
             data : data,
             version : version
@@ -131,7 +130,7 @@ export class Transaction {
         assert(typeof version === 'number', 'version must be a number.');
 
         this.ops.push({
-            type : jute.OP_CODES.DELETE,
+            type : OP_CODES.DELETE,
             path : path,
             version : version
         });
@@ -148,12 +147,11 @@ export class Transaction {
     public commit (callback: (error: Error | Exception, results?: any) => void): void {
         assert(typeof callback === 'function', 'callback must be a function');
 
-        var header = new jute.protocol.RequestHeader(),
-            payload = new jute.TransactionRequest(this.ops),
-            request;
+        const header = new jute.protocol.RequestHeader();
+        const payload = new TransactionRequest(this.ops);
 
-        header.type = jute.OP_CODES.MULTI;
-        request = new jute.Request(header, payload);
+        (header as any).type = OP_CODES.MULTI;
+        const request = new Request(header, payload);
 
         this.connectionManager.queue(request, function (error, response) {
             if (error) {
@@ -168,7 +166,7 @@ export class Transaction {
                 result = response.payload.results[i];
 
                 // Find if there is an op which caused the transaction to fail.
-                if (result.type === jute.OP_CODES.ERROR &&
+                if (result.type === OP_CODES.ERROR &&
                         result.err !== Exception.OK) {
                     error = Exception.create(result.err);
                     break;
